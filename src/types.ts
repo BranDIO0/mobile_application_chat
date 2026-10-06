@@ -1,10 +1,10 @@
+/** Common shape of every JSON response of the chat server. */
 export interface ApiResponse {
   status: 'ok' | 'error';
   code: number;
   message: string;
   token?: string;
   hash?: string;
-  [key: string]: any;
 }
 
 export interface ChatMessage {
@@ -18,8 +18,16 @@ export interface ChatMessage {
   fileid?: string | null;
   position?: string | null;
   usernick?: string;
-  userhash?: string;
-  userfullname?: string;
+}
+
+/** Payload for `postmessage` (everything optional). */
+export interface NewMessage {
+  text?: string;
+  chatid?: number;
+  photo?: string;
+  file?: string;
+  position?: string;
+  important?: boolean;
 }
 
 export interface ChatRoom {
@@ -35,18 +43,19 @@ export interface UserProfile {
   hash: string;
 }
 
+/** Meaning of the application error codes (returned as HTTP status). */
 export const ERROR_CODES: Record<number, string> = {
-  451: 'User-ID Format falsch (Muss 4 Buchstaben + it + 2 Ziffern sein, z.B. jaehit00)',
-  452: 'User existiert bereits -> Führe Login durch',
-  453: 'Passwort zu kurz (mindestens 6 Zeichen)',
-  454: 'Unbekannter User beim Login',
-  455: 'Falsches Passwort',
-  456: 'Token ungültig oder abgelaufen',
-  457: 'Ungültige Foto-/Datei-ID',
-  458: 'Ungültige Chat-ID',
-  462: 'Chat-Name zu kurz (mind. 2 Zeichen)',
-  466: 'Nickname zu kurz (mind. 2 Zeichen)',
-  467: 'Nickname zu lang (max. 30 Zeichen)',
-  468: 'Fullname zu kurz (mind. 2 Zeichen)',
-  469: 'Fullname zu lang (max. 30 Zeichen)',
+  451: 'Wrong user id format (4 letters + "it" + 2 digits, e.g. jaehit00)',
+  452: 'User already exists – use login instead',
+  453: 'Password too short (min. 6 characters)',
+  454: 'Unknown user',
+  455: 'Wrong password',
+  456: 'Invalid token',
+  457: 'Invalid photo / file id',
+  458: 'Invalid chat id',
+  462: 'Chat name too short (min. 2 characters)',
+  466: 'Nickname too short (min. 2 characters)',
+  467: 'Nickname too long (max. 30 characters)',
+  468: 'Full name too short (min. 2 characters)',
+  469: 'Full name too long (max. 30 characters)',
 };

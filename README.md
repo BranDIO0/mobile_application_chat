@@ -1,33 +1,87 @@
-# React + TypeScript + Vite
+# HSE Chat Client
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+It registers a user at the HSE chat server, handles the token, demonstrates the error codes
+and provides a small chat client.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **API Test tab** – the four exercise steps
+  1. Register (or login if the user already exists – `452`)
+  2. Show the token
+  3. Validate the token (server answers after ~1 s)
+  4. Trigger and explain error codes (only tests that cannot create accounts)
+- **Chat tab** – rooms, create room, messages with text / PNG photo / file / location / "important" flag,
+  user list, automatic refresh every 3 s
+- **Logout** button in the header
 
-## React Compiler
+## Tech stack
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+| Tool | Purpose |
+|------|---------|
+| [React 19](https://react.dev) | UI |
+| [TypeScript](https://www.typescriptlang.org) | Type safety |
+| [Vite](https://vite.dev) | Dev server, build, proxy to the chat server |
+| [Tailwind CSS v4](https://tailwindcss.com) | Styling |
+| [oxlint](https://oxc.rs) | Linting |
 
-## Expanding the Oxlint configuration
+No other runtime dependencies.
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
+## Project structure
 
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```
+.
+├── docs/
+│   └── TECHNICAL_DOCUMENTATION.md   # architecture & how everything works
+├── public/                          # static files (favicon)
+├── src/
+│   ├── api/          # HTTP communication with the chat server
+│   ├── hooks/        # state & side effects (auth, chat polling)
+│   ├── components/   # UI building blocks (header, modal, test steps, chat parts)
+│   ├── pages/        # one page per tab (ApiTestPage, ChatPage)
+│   ├── utils/        # small helpers
+│   ├── types.ts      # shared types + error code table
+│   ├── App.tsx       # root component (tabs)
+│   └── main.tsx      # entry point
+├── index.html
+├── vite.config.ts    # Tailwind plugin + /api-proxy
+└── package.json
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
-# mobile_application_chat
+Details: [docs/TECHNICAL_DOCUMENTATION.md](docs/TECHNICAL_DOCUMENTATION.md)
+
+## Run locally
+
+**Requirements:** [Node.js](https://nodejs.org) 20 or newer (includes npm).
+
+```bash
+# 1. install dependencies
+npm install
+
+# 2. start the dev server
+npm run dev
+```
+
+Open **http://localhost:5173** in the browser.
+
+> The dev server forwards all requests from `/api-proxy` to
+> `https://www2.hs-esslingen.de/~chkohl/chat`, so no CORS issues occur.
+
+### Other scripts
+
+| Command | Description |
+|---------|-------------|
+| `npm run build` | Type check + production build into `dist/` |
+| `npm run preview` | Serve the production build locally (proxy included) |
+| `npm run lint` | Run oxlint |
+
+## Usage
+
+1. Open the **API Test** tab, enter your HSE user id (e.g. `jaehit00`), a password, nickname and full name.
+2. Click **Register** (or **Login** if you get `452`). The token appears in step 2.
+3. Click **Validate** – expected answer: `Token valid`.
+4. Switch to the **Chat** tab to send messages.
+
+## Links
+
+- Chat server API (Swagger): https://www2.hs-esslingen.de/~chkohl/chat/docs/
+- Built-in server manual: https://www2.hs-esslingen.de/~chkohl/chat/
