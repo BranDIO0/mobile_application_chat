@@ -1,0 +1,262 @@
+\documentclass[a4paper,11pt]{article}
+
+% --- Sprache & Kodierung ---
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[ngerman]{babel}
+\usepackage{lmodern}
+\usepackage[scaled=0.92]{helvet}          % Helvetica (praktisch identisch mit Arial)
+\renewcommand{\familydefault}{\sfdefault} % serifenlose Schrift als Standard
+\usepackage{microtype}
+
+% --- Seitenlayout ---
+\usepackage[a4paper,margin=2.5cm,headheight=14pt]{geometry}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.6em}
+
+% --- Mathematik ---
+\usepackage{amsmath}
+
+% --- Tabellen ---
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+
+% --- Farben ---
+\usepackage[table]{xcolor}
+\definecolor{hsblue}{HTML}{1F4E79}
+\definecolor{hslight}{HTML}{E8F0F8}
+\definecolor{okgreen}{HTML}{2E7D32}
+\definecolor{okbg}{HTML}{E8F5E9}
+\definecolor{warnred}{HTML}{C62828}
+\definecolor{warnbg}{HTML}{FDECEA}
+\definecolor{codebg}{HTML}{F2F2F2}
+
+% --- Boxen, Listen, Überschriften, Kopfzeile ---
+\usepackage[most]{tcolorbox}
+\usepackage{enumitem}
+\setlist{itemsep=0.25em, topsep=0.3em}
+\usepackage{titlesec}
+\titleformat{\section}{\Large\bfseries\color{hsblue}}{\thesection}{0.8em}{}[{\color{hsblue}\titlerule[0.8pt]}]
+\titleformat{\subsection}{\large\bfseries\color{hsblue}}{\thesubsection}{0.8em}{}
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\color{gray}ADR-002}
+\fancyhead[R]{\small\color{gray}Mobile UX -- Chat-App}
+\fancyfoot[C]{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% --- Links ---
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=hsblue,
+    urlcolor=hsblue,
+    pdftitle={ADR-002: State-Management und Datenaktualisierung in der Chat-App},
+    pdfauthor={Gruppe 5}
+}
+
+% --- Eigene Befehle ---
+\newcommand{\code}[1]{\colorbox{codebg}{\texttt{\small #1}}}
+
+\newtcolorbox{entscheidung}{colback=okbg, colframe=okgreen, fonttitle=\bfseries,
+    title=Entscheidung, arc=2mm, boxrule=0.8pt}
+\newtcolorbox{proBox}{colback=okbg, colframe=okgreen, fonttitle=\bfseries,
+    title=Positive Folgen, arc=2mm, boxrule=0.8pt}
+\newtcolorbox{contraBox}{colback=warnbg, colframe=warnred, fonttitle=\bfseries,
+    title=Negative Folgen \& Risiken, arc=2mm, boxrule=0.8pt}
+
+\begin{document}
+
+% ================= Titelblock =================
+\begin{tcolorbox}[colback=hsblue, colframe=hsblue, arc=2mm, left=6mm, right=6mm, top=5mm, bottom=5mm]
+    \color{white}
+    {\small Architecture Decision Record}\\[0.3em]
+    {\LARGE\bfseries ADR-002: State-Management und\\[0.2em] Datenaktualisierung in der Chat-App}\\[0.8em]
+    {\small Gruppe 5 \quad$\cdot$\quad Mobile UX, Hochschule Esslingen \quad$\cdot$\quad \today}
+\end{tcolorbox}
+
+\vspace{0.5em}
+\begin{tabularx}{\textwidth}{@{}l X@{}}
+    \textbf{Status:}  & \colorbox{hsblue}{\color{white}\bfseries\,Vorgeschlagen\,} \\[0.3em]
+    \textbf{Baut auf:} & ADR-001 (Wahl von React~19 mit Vite \& TypeScript) \\
+\end{tabularx}
+
+% ================= 1. Titel =================
+\section{Titel und Nummer}
+\textbf{ADR-002: State-Management und Datenaktualisierung in der Chat-App}
+
+% ================= 2. Status =================
+\section{Status}
+\textbf{Vorgeschlagen}
+
+% ================= 3. Kontext =================
+\section{Kontext}
+Mit ADR-001 wurde React~19 mit Vite und TypeScript als Frontend-Framework
+festgelegt. Offen ist, \textbf{wie der Anwendungszustand verwaltet} wird und
+\textbf{wie neue Daten vom Chat-Server}
+(\url{https://www2.hs-esslingen.de/~chkohl/chat/}) in die Oberfläche gelangen.
+
+\subsection*{Zu verwaltender Zustand}
+\begin{itemize}
+    \item \textbf{Authentifizierung:} Token nach der Registrierung/Anmeldung.
+          Es muss über Seiten-Reloads erhalten bleiben und an jeden
+          API-Aufruf angehängt werden.
+    \item \textbf{Chat-Daten:} Nachrichten des aktiven Raums, Raumliste,
+          Mitglieder, Suchergebnisse.
+    \item \textbf{UI-Zustand:} Aktiver Tab (\textit{API-Test} /
+          \textit{Live-Chat}), geöffnete Modals, Formulareingaben, Lade- und
+          Fehlerzustände.
+    \item \textbf{API-Testbench:} Fortschritt des 4-stufigen Ablaufs,
+          Zeitstempel für die 1s-Delay-Validierung, empfangene
+          HTTP-Fehlercodes (451--469).
+\end{itemize}
+
+\subsection*{Randbedingungen}
+\begin{itemize}
+    \item Der Chat-Server bietet eine reine HTTP-Schnittstelle (GET mit
+          Query-Parametern / POST mit JSON-Body). Neue Nachrichten müssen
+          daher \textbf{per Polling} abgefragt werden.
+    \item Der Zustand wird nur von wenigen Komponenten gemeinsam genutzt
+          (Header, Chat-Seite, Modals).
+    \item Der Code soll übersichtlich bleiben und ohne lange Einarbeitung
+          nachvollziehbar sein (vgl.\ ADR-001).
+\end{itemize}
+
+% ================= 4. Optionen =================
+\section{Optionen und Bewertung}
+Es wurden drei Optionen für das State-Management betrachtet:
+\begin{enumerate}
+    \item \textbf{Option A: React-Bordmittel} (\code{useState}, \code{useReducer},
+          \code{useRef}, Context API), gekapselt in Custom Hooks
+          (\code{useAuth}, \code{useChat})
+    \item \textbf{Option B: Zustand} (schlanke externe State-Bibliothek)
+    \item \textbf{Option C: Redux Toolkit mit RTK Query}
+\end{enumerate}
+
+\subsection*{Gewichtete Entscheidungsmatrix}
+Bewertungsskala: 1 (schlecht) bis 5 (sehr gut). Der Gesamtwert ergibt sich
+als Summe aus \textit{Gewichtung $\times$ Punktzahl}. Die gewählte Option ist
+grün hinterlegt.
+
+\begin{table}[h]
+\centering
+\small
+\renewcommand{\arraystretch}{1.35}
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}X c >{\columncolor{okbg}}c c c}
+\toprule
+\rowcolor{hslight}
+\textbf{Kriterium} & \textbf{Gewichtung} & \textbf{A: React} & \textbf{B: Zustand} & \textbf{C: Redux} \\
+\midrule
+Geringer Boilerplate \& Übersichtlichkeit & 25\,\% & 5 & 4 & 2 \\
+Eignung für Polling \& Token-Handling     & 25\,\% & 4 & 4 & 5 \\
+TypeScript-Integration                    & 20\,\% & 5 & 5 & 4 \\
+Keine zusätzlichen Abhängigkeiten         & 15\,\% & 5 & 3 & 2 \\
+Skalierbarkeit \& Debugging-Tools         & 15\,\% & 3 & 4 & 5 \\
+\midrule
+\textbf{Gesamtbewertung} & \textbf{100\,\%} & \textbf{4{,}45} & \textbf{4{,}05} & \textbf{3{,}60} \\
+\bottomrule
+\end{tabularx}
+\caption{Gewichtete Entscheidungsmatrix (Punktzahlen 1--5)}
+\end{table}
+
+\textit{Rechenweg:}
+\begin{align*}
+\text{A:}\quad & 0{,}25 \cdot 5 + 0{,}25 \cdot 4 + 0{,}20 \cdot 5 + 0{,}15 \cdot 5 + 0{,}15 \cdot 3 = \mathbf{4{,}45}\\
+\text{B:}\quad & 0{,}25 \cdot 4 + 0{,}25 \cdot 4 + 0{,}20 \cdot 5 + 0{,}15 \cdot 3 + 0{,}15 \cdot 4 = \mathbf{4{,}05}\\
+\text{C:}\quad & 0{,}25 \cdot 2 + 0{,}25 \cdot 5 + 0{,}20 \cdot 4 + 0{,}15 \cdot 2 + 0{,}15 \cdot 5 = \mathbf{3{,}60}
+\end{align*}
+
+\subsection*{Detaillierte Bewertung der Alternativen}
+\begin{itemize}
+    \item \textbf{Redux Toolkit mit RTK Query (Option C):}
+    \begin{itemize}
+        \item \textit{Vorteile:} Eingebautes Polling
+              (\code{pollingInterval}), Caching, sehr gute DevTools,
+              bewährt in großen Projekten.
+        \item \textit{Nachteile:} Hoher Einarbeitungs- und
+              Konfigurationsaufwand (Store, Slices, API-Definitionen) -- für
+              den Umfang der Übung überdimensioniert.
+    \end{itemize}
+    \item \textbf{Zustand (Option B):}
+    \begin{itemize}
+        \item \textit{Vorteile:} Sehr wenig Code, globaler Store ohne
+              Provider, gute TypeScript-Unterstützung,
+              \code{persist}-Middleware für das Token.
+        \item \textit{Nachteile:} Zusätzliche Abhängigkeit. Bei wenigen
+              gemeinsam genutzten Zuständen ist der Vorteil gegenüber
+              React-Bordmitteln gering.
+    \end{itemize}
+    \item \textbf{React-Bordmittel in Custom Hooks (Option A):}
+    \begin{itemize}
+        \item \textit{Vorteile:} Keine zusätzliche Bibliothek. Die Logik ist
+              sauber in \code{useAuth} und \code{useChat} gekapselt. Polling
+              über \code{useEffect} + \code{setInterval}, mit \code{useRef}
+              für den letzten Nachrichtenstand, ist gut kontrollierbar.
+        \item \textit{Nachteile:} Kein eingebautes Caching. Bei stark
+              wachsendem Zustand kann Context unnötige Re-Renders verursachen.
+    \end{itemize}
+\end{itemize}
+
+% ================= 5. Entscheidung =================
+\section{Entscheidung}
+\begin{entscheidung}
+Wir entscheiden uns für \textbf{Option A: React-Bordmittel, gekapselt in
+Custom Hooks}.
+\end{entscheidung}
+
+Umsetzung im Detail:
+\begin{itemize}
+    \item \textbf{\code{useAuth} (via \code{AuthContext}):} Hält das
+          Token, speichert es in \code{localStorage} und stellt
+          \code{login}, \code{register} und \code{logout} bereit. Der
+          Context wird in der App-Wurzel bereitgestellt, da Header, Chat und
+          API-Test das Token benötigen.
+    \item \textbf{\code{useChat}:} Verwaltet Nachrichten, Räume und
+          Mitglieder des aktiven Raums. Neue Nachrichten werden per
+          \textbf{Polling} abgefragt (\code{setInterval} in
+          \code{useEffect}, Aufräumen im Cleanup). Über \code{useRef}
+          wird die ID bzw.\ der Zeitstempel der letzten Nachricht gemerkt,
+          sodass nur neue Nachrichten angehängt werden.
+    \item \textbf{Lokaler UI-Zustand} (Modals, Formulareingaben, aktiver Tab)
+          bleibt per \code{useState} in der jeweiligen Komponente.
+    \item \textbf{\code{src/api/}} bleibt zustandslos. Die Hooks rufen die
+          API-Funktionen auf und übergeben das Token explizit.
+\end{itemize}
+
+% ================= 6. Konsequenzen =================
+\section{Konsequenzen}
+\begin{proBox}
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Keine zusätzlichen Abhängigkeiten:} Das Projekt bleibt
+          schlank, der Build schnell.
+    \item \textbf{Klare Verantwortlichkeiten:} Komponenten zeigen nur an,
+          Logik und Zustand liegen in den Hooks -- passend zur
+          Schichtenarchitektur aus ADR-001.
+    \item \textbf{Nachvollziehbares Polling:} Start, Stopp und Intervall sind
+          explizit im Code sichtbar. Beim Raumwechsel oder Logout wird das
+          Intervall sauber beendet.
+    \item \textbf{Persistente Anmeldung:} Durch \code{localStorage} bleibt
+          das Token über Seiten-Reloads erhalten.
+\end{itemize}
+\end{proBox}
+
+\begin{contraBox}
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Polling-Last:} Regelmäßige Anfragen erzeugen
+          Netzwerkverkehr, auch wenn keine neuen Nachrichten vorliegen. Das
+          Intervall muss passend gewählt werden (z.\,B. 2--3\,s).
+    \item \textbf{Fehleranfälligkeit bei \code{useEffect}:} Fehlendes
+          Cleanup führt zu doppelten Intervallen (insbesondere im
+          React-StrictMode) oder zu veralteten Werten in Closures.
+    \item \textbf{Token in \code{localStorage}:} Anfällig bei XSS. Für die
+          Übung akzeptabel, im Produktivbetrieb wären HttpOnly-Cookies
+          vorzuziehen.
+    \item \textbf{Migrationspfad:} Wächst der Zustand deutlich, ist ein
+          Wechsel zu Zustand (Option B) mit geringem Aufwand möglich, da die
+          Logik bereits in Hooks gekapselt ist.
+\end{itemize}
+\end{contraBox}
+
+\end{document}
