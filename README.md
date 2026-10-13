@@ -31,7 +31,9 @@ No other runtime dependencies.
 ```
 .
 ├── docs/
-│   └── TECHNICAL_DOCUMENTATION.md   # architecture & how everything works
+│   ├── TECHNICAL_DOCUMENTATION.md   # architecture & how everything works
+│   └── adr/
+│       └── 001-framework.md         # Architecture Decision Record (React + Vite + TS)
 ├── public/                          # static files (favicon)
 ├── src/
 │   ├── api/          # HTTP communication with the chat server
