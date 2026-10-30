@@ -9,6 +9,7 @@ export const chatApi = {
   login: (userid: string, password: string) => request('GET', 'login', { userid, password }),
   validateToken: (token: string) => request('GET', 'validatetoken', { token }),
   logout: (token: string) => request('GET', 'logout', { token }),
+  deregister: (token: string) => request('GET', 'deregister', { token }),
 
   // Chats & users
   getChats: (token: string) => request<ApiResponse & { chats: ChatRoom[] }>('GET', 'getchats', { token }),

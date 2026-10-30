@@ -3,9 +3,10 @@ import { useAuth } from './hooks/useAuth';
 import { Header, type Tab } from './components/Header';
 import { ApiTestPage } from './pages/ApiTestPage';
 import { ChatPage } from './pages/ChatPage';
+import { ProfilePage } from './pages/ProfilePage';
 
 export default function App() {
-  const { userId, setUserId, token, setToken, logout } = useAuth();
+  const { userId, setUserId, token, setToken, logout, deleteAccount } = useAuth();
   const [tab, setTab] = useState<Tab>('test');
 
   return (
@@ -21,6 +22,8 @@ export default function App() {
           ) : (
             <p className="card mx-auto max-w-md text-center text-sm">Please register or log in on the API Test tab first.</p>
           ))}
+
+        {tab === 'profile' && <ProfilePage token={token} userId={userId} onDeleteAccount={deleteAccount} />}
       </main>
     </div>
   );

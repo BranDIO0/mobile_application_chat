@@ -18,5 +18,11 @@ export function useAuth() {
     setToken(null);
   };
 
-  return { userId, setUserId, token, setToken, logout };
+  const deleteAccount = async () => {
+    if (!token) return;
+    await chatApi.deregister(token);
+    setToken(null);
+  };
+
+  return { userId, setUserId, token, setToken, logout, deleteAccount };
 }

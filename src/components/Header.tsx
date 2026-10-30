@@ -1,4 +1,4 @@
-export type Tab = 'test' | 'chat';
+export type Tab = 'test' | 'chat' | 'profile';
 
 interface HeaderProps {
   tab: Tab;
@@ -11,6 +11,7 @@ interface HeaderProps {
 const TABS: { id: Tab; label: string }[] = [
   { id: 'test', label: '1. API Test' },
   { id: 'chat', label: '2. Chat' },
+  { id: 'profile', label: '3. Profile' },
 ];
 
 export function Header({ tab, onTabChange, userId, loggedIn, onLogout }: HeaderProps) {
