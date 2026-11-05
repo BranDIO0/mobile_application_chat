@@ -1,4 +1,5 @@
-import type { ApiResponse } from '../types';
+import { ERROR_CODES, type ApiResponse } from '../types';
+import { handleMockRequest, isMockModeEnabled } from './mockServer';
 
 /** All requests go through the Vite dev proxy to avoid CORS issues (see vite.config.ts). */
 export const BASE_URL = '/api-proxy';
@@ -15,6 +16,30 @@ export class ApiError extends Error {
   }
 }
 
+/** Converts API and network errors into human-readable messages with status codes. */
+export function formatError(error: unknown): string {
+  if (error instanceof ApiError) {
+    const mapped = ERROR_CODES[error.code];
+    if (mapped) {
+      return `Fehler ${error.code}: ${mapped}`;
+    }
+    if (error.code === 404) {
+      return 'HTTP 404 (Not Found): Der HSE-Chat-Server (www2.hs-esslingen.de/~chkohl/chat) ist auf dem Hochschul-Webserver momentan nicht erreichbar (offline).';
+    }
+    if (error.code >= 500) {
+      return `Serverfehler (${error.code}): Der Chat-Server ist derzeit nicht erreichbar.`;
+    }
+    return `HTTP ${error.code}: ${error.message}`;
+  }
+  if (error instanceof Error) {
+    if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+      return 'Netzwerkfehler: Keine Verbindung zum Chat-Server möglich.';
+    }
+    return error.message;
+  }
+  return String(error);
+}
+
 type Params = Record<string, string | number | boolean | undefined>;
 
 /**
@@ -27,6 +52,10 @@ export async function request<T = ApiResponse>(
   name: string,
   params: Params = {},
 ): Promise<T> {
+  if (isMockModeEnabled()) {
+    return handleMockRequest<T>(name, params);
+  }
+
   let url = `${BASE_URL}/`;
   const init: RequestInit = { method, headers: { Accept: 'application/json' } };
 
@@ -49,7 +78,13 @@ export async function request<T = ApiResponse>(
   try {
     data = JSON.parse(text);
   } catch {
-    data = { status: res.ok ? 'ok' : 'error', code: res.status, message: text || res.statusText };
+    const isHtml = /^\s*<!doctype|^\s*<html/i.test(text);
+    const cleanMessage = isHtml
+      ? res.status === 404
+        ? 'Chat-Endpunkt (~chkohl/chat) auf www2.hs-esslingen.de nicht gefunden (404 Not Found).'
+        : `HTTP ${res.status} (${res.statusText || 'Server Error'})`
+      : text || res.statusText;
+    data = { status: res.ok ? 'ok' : 'error', code: res.status, message: cleanMessage };
   }
 
   if (!res.ok) throw new ApiError(res.status, data);
