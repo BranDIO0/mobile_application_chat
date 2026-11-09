@@ -214,10 +214,11 @@ function useAppState() {
 
   // ── Load & Poll Messages (getmessages) for activeChannel ──
   const pollMessagesNow = useRef<() => Promise<void>>(async () => {});
+  const activeChatId = activeChannel.chatid;
 
   useEffect(() => {
-    if (!auth.token || !activeChannel) return;
-    const targetChatId = activeChannel.chatid;
+    if (!auth.token) return;
+    const targetChatId = activeChatId;
     const targetIdStr = String(targetChatId);
     let lastId = 0;
     let cancelled = false;
@@ -255,25 +256,26 @@ function useAppState() {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [auth.token, auth.userId, activeChannel.chatid]);
+  }, [auth.token, auth.userId, activeChatId]);
+
+  const archivedChatId = channels.find((c) => c.archived)?.chatid;
 
   // Also preload messages for archived room when archive screen opens
   useEffect(() => {
-    if (screen !== 'archive' || !auth.token) return;
-    const arch = channels.find((c) => c.archived);
-    if (!arch) return;
+    if (screen !== 'archive' || !auth.token || archivedChatId === undefined) return;
+    const archIdStr = String(archivedChatId);
     chatApi
-      .getMessages(auth.token, arch.chatid, 0)
+      .getMessages(auth.token, archivedChatId, 0)
       .then((res) => {
         const parsed = (res.messages ?? []).map((m) =>
           parseChatMessage(m, auth.userId, auth.token ?? undefined),
         );
         setChannels((prev) =>
-          prev.map((c) => (c.id === arch.id ? { ...c, messages: parsed } : c)),
+          prev.map((c) => (c.id === archIdStr ? { ...c, messages: parsed } : c)),
         );
       })
       .catch(() => {});
-  }, [screen, auth.token, auth.userId, channels.length]);
+  }, [screen, auth.token, auth.userId, archivedChatId]);
 
   const markOb = (n: number) => setObDone((d) => (d.includes(n) ? d : [...d, n]));
 

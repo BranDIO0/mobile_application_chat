@@ -1,44 +1,39 @@
-import { SubHeader } from './components/Layout';
+import { type ComponentType } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
-import { Notifications } from './screens/Account';
+import type { ScreenId } from './data/catalog';
+import { Notifications, Profile, Settings } from './screens/Account';
 import { Login, Onboarding, Register, Splash } from './screens/Auth';
 import { Archive, ChatView, Chats, SubgroupModal } from './screens/Chat';
 import { Catalog, FileView, FreeGroup, Invitations, Invite } from './screens/Groups';
 
-function ScreenRouter() {
-  const { screen } = useApp();
-  if (screen === 'splash') return <Splash />;
-  if (screen === 'login') return <Login />;
-  if (screen === 'register') return <Register />;
-  if (screen === 'onboarding') return <Onboarding />;
-  if (screen === 'chats') return <Chats />;
-  if (screen === 'chat') return <ChatView />;
-  if (screen === 'archive') return <Archive />;
-  if (screen === 'catalog') return <Catalog />;
-  if (screen === 'freegroup') return <FreeGroup />;
-  if (screen === 'invite') return <Invite />;
-  if (screen === 'invitations') return <Invitations />;
-  if (screen === 'file') return <FileView />;
-  if (screen === 'notifications') return <Notifications />;
-
-  return (
-    <>
-      <SubHeader title={screen} />
-      <div className="form-body">
-        <div className="empty-state">Screen „{screen}“ (wird in Step 6 verbunden)</div>
-      </div>
-    </>
-  );
-}
+const SCREENS: Record<ScreenId, ComponentType> = {
+  splash: Splash,
+  login: Login,
+  register: Register,
+  onboarding: Onboarding,
+  chats: Chats,
+  chat: ChatView,
+  archive: Archive,
+  catalog: Catalog,
+  freegroup: FreeGroup,
+  invite: Invite,
+  invitations: Invitations,
+  file: FileView,
+  profile: Profile,
+  settings: Settings,
+  notifications: Notifications,
+};
 
 function PhoneShell() {
-  const { navKey, dir, subgroupModal, toastMsg } = useApp();
+  const { screen, navKey, dir, subgroupModal, toastMsg } = useApp();
+  const Screen = SCREENS[screen];
+
   return (
     <main className="app-stage">
       <div className="phone">
         <div className="island" aria-hidden />
         <div key={navKey} className={`screen enter-${dir}`}>
-          <ScreenRouter />
+          <Screen />
         </div>
         {subgroupModal && <SubgroupModal />}
         {toastMsg && (
