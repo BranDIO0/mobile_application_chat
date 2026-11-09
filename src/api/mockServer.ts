@@ -1,16 +1,18 @@
 import { ERROR_CODES, type ApiResponse, type ChatInvite, type ChatMessage, type ChatRoom, type UserProfile } from '../types';
 import { ApiError } from './client';
 
-const STORAGE_KEY = 'hse_chat_mock_db_v1';
+const STORAGE_KEY = 'hse_chat_mock_db_v2';
 const MODE_KEY = 'hse_chat_use_mock';
 
 export function isMockModeEnabled(): boolean {
-  return localStorage.getItem(MODE_KEY) === 'true';
+  const val = localStorage.getItem(MODE_KEY);
+  // Default to true if not set so the app works immediately offline/without HSE VPN
+  if (val === null) return true;
+  return val === 'true';
 }
 
 export function setMockModeEnabled(enabled: boolean): void {
-  if (enabled) localStorage.setItem(MODE_KEY, 'true');
-  else localStorage.removeItem(MODE_KEY);
+  localStorage.setItem(MODE_KEY, enabled ? 'true' : 'false');
   window.dispatchEvent(new Event('hse-mock-mode-change'));
 }
 
@@ -46,12 +48,44 @@ function createInitialDb(): MockDb {
         token: 'mock_token_jaehit00',
       },
       {
-        userid: 'asesit01',
+        userid: 'asesit00',
         password: 'password123',
         nickname: 'Asinas',
         fullname: 'Asinas Esber',
-        hash: 'hash_asesit01_c3d4',
-        token: 'mock_token_asesit01',
+        hash: 'hash_asesit00_c3d4',
+        token: 'mock_token_asesit00',
+      },
+      {
+        userid: 'abcdit01',
+        password: 'password123',
+        nickname: 'Max',
+        fullname: 'Max Mustermann',
+        hash: 'hash_abcdit01_m1m2',
+        token: 'mock_token_abcdit01',
+      },
+      {
+        userid: 'abcdit09',
+        password: 'password123',
+        nickname: 'abcdit09',
+        fullname: 'Anna Beispiel',
+        hash: 'hash_abcdit09_a9b9',
+        token: 'mock_token_abcdit09',
+      },
+      {
+        userid: 'abcdit23',
+        password: 'password123',
+        nickname: 'abcdit23',
+        fullname: 'Lukas Weber',
+        hash: 'hash_abcdit23_l2w3',
+        token: 'mock_token_abcdit23',
+      },
+      {
+        userid: 'abcdit44',
+        password: 'password123',
+        nickname: 'abcdit44',
+        fullname: 'Sarah Klein',
+        hash: 'hash_abcdit44_s4k4',
+        token: 'mock_token_abcdit44',
       },
       {
         userid: 'cehiit02',
@@ -71,57 +105,186 @@ function createInitialDb(): MockDb {
       },
     ],
     rooms: [
-      { chatid: 0, chatname: 'Main Chat', visibility: 'public' },
-      { chatid: 1, chatname: 'Mobile UI – Vorlesung', visibility: 'public' },
-      { chatid: 2, chatname: 'Mobile UI – Übung Gruppe 5', visibility: 'public' },
-      { chatid: 3, chatname: 'Projekt Alpha – Intern', visibility: 'private' },
+      { chatid: 1, chatname: 'WS26::MOD::Mathe_1::MAIN', visibility: 'public' },
+      { chatid: 2, chatname: 'WS26::MOD::Mathe_1::SUB::Lerngruppe_A', visibility: 'private' },
+      { chatid: 3, chatname: 'WS26::MOD::Mathe_1::SUB::Übungsblatt_3', visibility: 'private' },
+      { chatid: 4, chatname: 'WS26::MOD::Prog_1::MAIN', visibility: 'public' },
+      { chatid: 5, chatname: 'WS26::MOD::DB_Systeme::MAIN', visibility: 'public' },
+      { chatid: 6, chatname: 'CUSTOM::Webtech-Proj.', visibility: 'private' },
+      { chatid: 7, chatname: 'SS25::MOD::Mathe_1::MAIN', visibility: 'public' },
     ],
     invites: [
-      { chatid: 4, chatname: 'Klausurvorbereitung WS26', visibility: 'private' },
+      { chatid: 8, chatname: 'WS26::MOD::Mathe_1::SUB::Lerngruppe_B', userid: 'abcdit44', usernick: 'abcdit44', visibility: 'private' },
+      { chatid: 9, chatname: 'CUSTOM::Webtech-Hackathon-Team', userid: 'abcdit23', usernick: 'abcdit23', visibility: 'private' },
     ],
     messages: [
+      // Room 1: Mathe 1 Hauptkanal
       {
         id: 1,
-        chatid: 0,
-        userid: 'cehiit02',
-        usernick: 'Celine',
-        time: '2026-10-30 10:15:00',
-        important: false,
-        text: 'Hallo zusammen! Willkommen im Hauptchat der Hochschule Esslingen.',
+        chatid: 1,
+        userid: 'prof.mueller',
+        usernick: 'prof.mueller',
+        time: '2026-11-09 08:00:00',
+        important: true,
+        text: 'Willkommen zu Mathe 1 im WS 26/27! Folien und Übungsblätter findet ihr wie immer auf Moodle.',
       },
       {
         id: 2,
-        chatid: 0,
-        userid: 'niplit03',
-        usernick: 'Niklas',
-        time: '2026-10-30 10:18:22',
-        important: true,
-        text: 'Wichtiger Hinweis: Heute werden getchats, getmessages sowie Lade- und Fehlerzustände vorgestellt.',
+        chatid: 1,
+        userid: 'abcdit44',
+        usernick: 'abcdit44',
+        time: '2026-11-09 08:12:00',
+        important: false,
+        text: 'Gibt es diese Woche schon ein Tutorium?',
       },
       {
         id: 3,
         chatid: 1,
-        userid: 'asesit01',
-        usernick: 'Asinas',
-        time: '2026-10-30 11:02:10',
+        userid: 'prof.mueller',
+        usernick: 'prof.mueller',
+        time: '2026-11-09 09:10:00',
         important: true,
-        text: 'Die Folien zur API-Anbindung (getchats & getmessages) sind jetzt verfügbar.',
+        text: 'Klausurvorbereitung: Aufgabe 3b ist jetzt auf Moodle.',
       },
+      // Room 2: Lerngruppe A
       {
         id: 4,
         chatid: 2,
-        userid: 'jaehit00',
-        usernick: 'Jan',
-        time: '2026-10-30 11:45:00',
+        userid: 'abcdit44',
+        usernick: 'abcdit44',
+        time: '2026-11-09 08:30:00',
         important: false,
-        text: 'Ich habe das Frontend auf die erste Alpha-Version umgebaut.',
-        position: '{lat: 48.739, lon: 9.307}',
+        text: 'Haben wir Aufgabe 3 schon besprochen?',
+      },
+      {
+        id: 5,
+        chatid: 2,
+        userid: 'abcdit09',
+        usernick: 'abcdit09',
+        time: '2026-11-09 08:35:00',
+        important: false,
+        text: '[ATTACHMENT::Tafelanschrieb_VL3.jpg::1.2 MB::img]',
+        photoid: 'photo_tafel',
+      },
+      {
+        id: 6,
+        chatid: 2,
+        userid: 'abcdit09',
+        usernick: 'abcdit09',
+        time: '2026-11-09 08:36:00',
+        important: false,
+        text: 'Hab das Foto vom Hörsaal gemacht.',
+      },
+      {
+        id: 7,
+        chatid: 2,
+        userid: 'abcdit23',
+        usernick: 'abcdit23',
+        time: '2026-11-09 09:05:00',
+        important: false,
+        text: 'Danke! Bei Teilaufgabe b) noch unsicher 🤔',
+      },
+      {
+        id: 8,
+        chatid: 2,
+        userid: 'prof.mueller',
+        usernick: 'prof.mueller',
+        time: '2026-11-09 09:10:00',
+        important: true,
+        text: 'Klausurvorbereitung: Aufgabe 3b ist jetzt auf Moodle.',
+      },
+      // Room 3: Übungsblatt 3
+      {
+        id: 9,
+        chatid: 3,
+        userid: 'abcdit09',
+        usernick: 'abcdit09',
+        time: '2026-11-08 14:15:00',
+        important: false,
+        text: 'Wer übernimmt Aufgabe 2?',
+      },
+      // Room 4: Prog 1 Hauptkanal
+      {
+        id: 10,
+        chatid: 4,
+        userid: 'prof.schmidt',
+        usernick: 'prof.schmidt',
+        time: '2026-11-09 07:45:00',
+        important: true,
+        text: 'Abgabe Praktikum 2 bis Freitag 23:59 über GitLab.',
+      },
+      {
+        id: 11,
+        chatid: 4,
+        userid: 'abcdit23',
+        usernick: 'abcdit23',
+        time: '2026-11-09 08:02:00',
+        important: false,
+        text: 'Muss die Doku auch in Markdown sein?',
+      },
+      {
+        id: 12,
+        chatid: 4,
+        userid: 'prof.schmidt',
+        usernick: 'prof.schmidt',
+        time: '2026-11-09 08:20:00',
+        important: true,
+        text: 'Ja, README.md im Repo-Root reicht.',
+      },
+      // Room 5: DB Systeme
+      {
+        id: 13,
+        chatid: 5,
+        userid: 'prof.weber',
+        usernick: 'prof.weber',
+        time: '2026-11-07 10:00:00',
+        important: true,
+        text: 'Ab nächster Woche findet die Übung in Raum S 1.07 statt.',
+      },
+      // Room 6: Webtech-Proj.
+      {
+        id: 14,
+        chatid: 6,
+        userid: 'abcdit23',
+        usernick: 'abcdit23',
+        time: '2026-11-08 18:30:00',
+        important: false,
+        text: 'Repo ist angelegt, Einladungen sind raus.',
+      },
+      // Room 7: Archiv Mathe 1 SS25
+      {
+        id: 15,
+        chatid: 7,
+        userid: 'prof.mueller',
+        usernick: 'prof.mueller',
+        time: '2025-07-14 10:00:00',
+        important: true,
+        text: 'Klausurergebnisse sind im Sekretariat abholbar.',
+      },
+      {
+        id: 16,
+        chatid: 7,
+        userid: 'abcdit44',
+        usernick: 'abcdit44',
+        time: '2025-07-14 10:15:00',
+        important: false,
+        text: '[ATTACHMENT::Klausurvorbereitung_SS25.pdf::580 KB::pdf]',
+        fileid: 'file_ss25',
+      },
+      {
+        id: 17,
+        chatid: 7,
+        userid: 'abcdit23',
+        usernick: 'abcdit23',
+        time: '2025-07-14 10:20:00',
+        important: false,
+        text: 'War eine gute Runde. Viel Erfolg allen! 🎉',
       },
     ],
     photos: {},
     files: {},
-    nextChatId: 5,
-    nextMsgId: 5,
+    nextChatId: 10,
+    nextMsgId: 18,
   };
 }
 
@@ -147,6 +310,10 @@ function saveDb(db: MockDb): void {
   }
 }
 
+export function resetMockDb(): void {
+  localStorage.removeItem(STORAGE_KEY);
+}
+
 function throwError(code: number, customMsg?: string): never {
   const message = customMsg ?? ERROR_CODES[code] ?? `Error ${code}`;
   throw new ApiError(code, { status: 'error', code, message });
@@ -160,7 +327,7 @@ const USER_ID_REGEX = /^[a-zA-Z]{4}it\d{2}$/;
 
 export function getMockPhotoUrl(photoid: string): string {
   const db = loadDb();
-  return db.photos[photoid] ?? '';
+  return db.photos[photoid] ?? '/assets/hey-logo.png';
 }
 
 export function getMockFileUrl(fileid: string): string {
@@ -172,8 +339,7 @@ export async function handleMockRequest<T = ApiResponse>(
   name: string,
   params: Record<string, string | number | boolean | undefined>,
 ): Promise<T> {
-  // Simulate realistic network latency for loading states
-  await delay(name === 'validatetoken' ? 950 : 250);
+  await delay(name === 'validatetoken' ? 600 : 180);
 
   const db = loadDb();
 
@@ -184,7 +350,6 @@ export async function handleMockRequest<T = ApiResponse>(
     }
     let user = db.users.find((u) => u.token === token);
     if (!user) {
-      // If user had a token from an earlier session, bind it to current userId
       const fallbackId = localStorage.getItem('userId') ?? 'jaehit00';
       user = db.users.find((u) => u.userid.toLowerCase() === fallbackId.toLowerCase());
       if (user) {
@@ -234,12 +399,11 @@ export async function handleMockRequest<T = ApiResponse>(
 
       let user = db.users.find((u) => u.userid.toLowerCase() === userid.toLowerCase());
       if (!user) {
-        // Auto-create in mock mode if valid format so testing is effortless
         user = {
           userid,
           password,
-          nickname: userid.slice(0, 4),
-          fullname: `${userid} (Student)`,
+          nickname: userid,
+          fullname: `${userid} (Studierender)`,
           hash: `hash_${userid}`,
           token: `mock_tok_${userid}_${Date.now().toString(36)}`,
         };
@@ -279,7 +443,8 @@ export async function handleMockRequest<T = ApiResponse>(
       const chatname = String(params.chatname ?? '').trim();
       const ispublic = params.ispublic !== false && params.ispublic !== 'false';
       if (chatname.length < 2) throwError(462);
-      if (chatname.length > 30) throwError(463);
+      // Note: Server limit is 30 chars, allow slightly longer in mock if needed or clamp
+      if (chatname.length > 50) throwError(463);
 
       const chatid = db.nextChatId++;
       db.rooms.push({
