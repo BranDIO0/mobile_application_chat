@@ -1,12 +1,16 @@
+import { chatApi } from '../api/chatApi';
 import {
   INITIAL_MODULES,
+  isDozentUser,
   slugifyName,
   unslugifyName,
   type Channel,
+  type FileAtt,
   type Invitation,
   type Module,
+  type Msg,
 } from '../data/catalog';
-import type { ChatInvite, ChatRoom } from '../types';
+import type { ChatInvite, ChatMessage, ChatRoom } from '../types';
 
 export const CURRENT_SEMESTER = 'WS26';
 
@@ -26,6 +30,12 @@ const MOD_REGEX = /^(?:(?<sem>[A-Z]{2}\d{2})::)?MOD::(?<mod>[^:]+)(?:::(?<kind>M
  * - WS26::CUSTOM::Webtech-Proj.
  */
 const CUSTOM_REGEX = /^(?:(?<sem>[A-Z]{2}\d{2})::)?CUSTOM::(?<name>.+)$/i;
+
+/**
+ * Matches embedded attachment metadata in text:
+ * [ATTACHMENT::Tafelanschrieb_VL3.jpg::1.2 MB::img]
+ */
+const ATTACHMENT_REGEX = /^\[ATTACHMENT::(?<name>[^:]+)::(?<size>[^:]+)::(?<kind>img|pdf)\](?:\s*(?<rest>.*))?$/is;
 
 export function findModuleByToken(modToken: string, modules: Module[] = INITIAL_MODULES): Module | undefined {
   const clean = modToken.trim().toLowerCase();
@@ -99,7 +109,6 @@ export function parseChatRoom(room: ChatRoom, existingMessages: Channel['message
     };
   }
 
-  // Fallback for plain server rooms (e.g. #0 Main Chat or user-created rooms without prefix)
   return {
     id,
     chatid,
@@ -131,7 +140,7 @@ export function parseChatInvite(inv: ChatInvite): Invitation {
       room: `${channelName} — ${modLabel}`,
       icon: '💬',
       from,
-      when: 'gerade eben',
+      when: 'vor 2 Stunden',
       status: 'open',
       moduleId: matchedMod?.id,
       channelName,
@@ -147,7 +156,7 @@ export function parseChatInvite(inv: ChatInvite): Invitation {
       room: channelName,
       icon: '🔧',
       from,
-      when: 'gerade eben',
+      when: 'gestern',
       status: 'open',
       channelName,
     };
@@ -163,6 +172,83 @@ export function parseChatInvite(inv: ChatInvite): Invitation {
     status: 'open',
     channelName: rawName,
   };
+}
+
+function formatMessageTime(rawTime?: string): string {
+  if (!rawTime) {
+    const d = new Date();
+    return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+  }
+  // Expected server format: "YYYY-MM-DD HH:MM:SS"
+  const match = rawTime.match(/(\d{1,2}):(\d{2})/);
+  if (match) {
+    return `${Number(match[1])}:${match[2]}`;
+  }
+  return rawTime;
+}
+
+export function parseChatMessage(m: ChatMessage, currentUserId: string, token?: string): Msg {
+  const isSelf = (m.userid ?? '').toLowerCase() === currentUserId.toLowerCase();
+  const senderLabel = isSelf ? 'self' : m.userid || m.usernick || 'Nutzer';
+  const dozent = isDozentUser(m.userid, m.usernick);
+  const time = formatMessageTime(m.time);
+
+  let text: string | undefined = (m.text ?? '').trim() || undefined;
+  let file: FileAtt | undefined;
+
+  if (text) {
+    const attMatch = text.match(ATTACHMENT_REGEX);
+    if (attMatch && attMatch.groups) {
+      const kind = attMatch.groups.kind === 'img' ? 'img' : 'pdf';
+      const url =
+        kind === 'img' && m.photoid
+          ? chatApi.photoUrl(m.photoid, token)
+          : m.fileid
+            ? chatApi.fileUrl(m.fileid, token)
+            : undefined;
+      file = {
+        name: attMatch.groups.name,
+        size: attMatch.groups.size,
+        kind,
+        url,
+      };
+      text = attMatch.groups.rest?.trim() || undefined;
+    }
+  }
+
+  if (!file && m.photoid) {
+    file = {
+      name: `Foto_${m.id}.jpg`,
+      size: '420 KB',
+      kind: 'img',
+      url: chatApi.photoUrl(m.photoid, token),
+    };
+  } else if (!file && m.fileid) {
+    file = {
+      name: `Dokument_${m.id}.pdf`,
+      size: '240 KB',
+      kind: 'pdf',
+      url: chatApi.fileUrl(m.fileid, token),
+    };
+  }
+
+  return {
+    id: String(m.id),
+    from: senderLabel,
+    senderId: m.userid,
+    dozent,
+    time,
+    text,
+    file,
+    important: Boolean(m.important),
+  };
+}
+
+export function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = Math.round(bytes / 1024);
+  if (kb < 1024) return `${kb} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export function buildModuleMainRoomName(mod: Module): string {

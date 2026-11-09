@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, Search, X } from 'lucide-react';
+import { Check, Download, FileText, Image, Search, Share2, X } from 'lucide-react';
 import { CATEGORIES } from '../data/catalog';
 import { MainHeader, SubHeader, TabBar } from '../components/Layout';
 import { useApp } from '../context/AppContext';
@@ -168,6 +168,88 @@ export function FreeGroup() {
           {busy ? 'Erstelle Gruppe…' : 'Gruppe erstellen'}
         </button>
       </form>
+    </>
+  );
+}
+
+export function FileView() {
+  const p = useApp();
+  const { file, sharedBy, channelId } = p.openFileState;
+  const ch = p.channel(channelId);
+  const mod = p.moduleOf(ch);
+  const isImg = file.kind === 'img';
+  const ext = file.name.split('.').pop()?.toUpperCase();
+
+  const download = () => {
+    if (file.url && file.url !== '#') {
+      const a = document.createElement('a');
+      a.href = file.url;
+      a.download = file.name;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.click();
+    }
+    p.toast(`${file.name} heruntergeladen`);
+  };
+
+  return (
+    <>
+      <SubHeader title={file.name}>
+        <button className="icon-btn" aria-label="Herunterladen" onClick={download}>
+          <Download size={22} />
+        </button>
+      </SubHeader>
+      <div className="file-preview">
+        {isImg && file.url && file.url.startsWith('data:image/') ? (
+          <img
+            src={file.url}
+            alt={file.name}
+            style={{
+              maxWidth: '85%',
+              maxHeight: 220,
+              borderRadius: 'var(--r-lg)',
+              boxShadow: 'var(--shadow-md)',
+              border: '2px solid var(--line)',
+              objectFit: 'contain',
+              background: 'var(--surface)',
+            }}
+          />
+        ) : (
+          <div className="file-thumb">
+            <div
+              className="file-thumb-top"
+              style={{ background: isImg ? 'var(--navy)' : 'var(--red)' }}
+            >
+              {isImg ? <Image size={40} strokeWidth={1.6} /> : <FileText size={40} strokeWidth={1.6} />}
+            </div>
+            <div className="file-thumb-lines">
+              <div />
+              <div style={{ width: '75%' }} />
+              <div style={{ width: '55%' }} />
+            </div>
+          </div>
+        )}
+        <div className="file-meta">{file.name}</div>
+        <div className="file-size">
+          {file.size} · {ext === 'JPG' ? 'JPEG' : ext} · 29.10.2026
+        </div>
+      </div>
+      <div className="file-sharer">
+        Geteilt von {sharedBy}
+        {ch ? ` · ${ch.name}` : ''}
+        {mod ? ` · ${mod.short}` : ''}
+      </div>
+      <div className="file-actions">
+        <button className="btn-primary md" onClick={download}>
+          <Download size={18} /> Herunterladen
+        </button>
+        <button
+          className="btn-secondary"
+          onClick={() => p.toast('Link in die Zwischenablage kopiert')}
+        >
+          <Share2 size={18} /> Teilen
+        </button>
+      </div>
     </>
   );
 }

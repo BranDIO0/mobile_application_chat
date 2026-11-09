@@ -2,7 +2,7 @@ import { MainHeader, SubHeader, TabBar } from './components/Layout';
 import { AppProvider, useApp } from './context/AppContext';
 import { Login, Onboarding, Register, Splash } from './screens/Auth';
 import { Archive, ChatView, Chats, SubgroupModal } from './screens/Chat';
-import { Catalog, FreeGroup } from './screens/Groups';
+import { Catalog, FileView, FreeGroup } from './screens/Groups';
 
 function ScreenRouter() {
   const { screen } = useApp();
@@ -15,6 +15,7 @@ function ScreenRouter() {
   if (screen === 'archive') return <Archive />;
   if (screen === 'catalog') return <Catalog />;
   if (screen === 'freegroup') return <FreeGroup />;
+  if (screen === 'file') return <FileView />;
 
   if (screen === 'invitations' || screen === 'notifications') {
     return (

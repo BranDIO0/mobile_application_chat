@@ -13,11 +13,14 @@ import {
   type ScreenId,
 } from '../data/catalog';
 import { useAuth } from '../hooks/useAuth';
+import { fileToBase64 } from '../utils/fileToBase64';
 import {
   buildCustomGroupRoomName,
   buildModuleMainRoomName,
   buildSubgroupRoomName,
+  formatFileSize,
   parseChatInvite,
+  parseChatMessage,
   parseChatRoom,
 } from '../utils/roomParser';
 
@@ -25,6 +28,8 @@ export type Dir = 'push' | 'pop' | 'fade';
 export type Member = { id: string; role: string; hash?: string };
 export type InviteState = { pending: string[]; members: Member[] };
 export type OpenFile = { file: FileAtt; sharedBy: string; channelId: string };
+
+const POLL_INTERVAL_MS = 3000;
 
 const INITIAL_NOTIFS: Notif[] = [
   { id: 'n1', unread: true, time: 'vor 2 Stunden', target: { type: 'invitations' }, html: <><strong>abcdit44</strong> hat dich zur <strong>Lerngruppe B</strong> eingeladen.</> },
@@ -125,7 +130,6 @@ function useAppState() {
     later(() => setToastMsg((t) => (t?.id === id ? null : t)), 2400);
   }, []);
 
-  // Show session error toast if token validation failed with 456
   useEffect(() => {
     if (auth.sessionError) {
       toast(auth.sessionError);
@@ -153,7 +157,6 @@ function useAppState() {
         return parsed;
       });
 
-      // Sync joined modules based on rooms returned by getchats
       const joinedModIds = new Set(
         rawRooms
           .map((r) => parseChatRoom(r))
@@ -166,7 +169,6 @@ function useAppState() {
         );
       }
 
-      // Merge open server invites with locally archived (accepted/rejected) invites
       const serverInvites = (invitesRes.invites ?? []).map(parseChatInvite);
       setInvitations((prevInv) => {
         const archivedInv = prevInv.filter((i) => i.status !== 'open');
@@ -203,6 +205,69 @@ function useAppState() {
       members: 120,
       messages: [],
     };
+
+  // ── Load & Poll Messages (getmessages) for activeChannel ──
+  const pollMessagesNow = useRef<() => Promise<void>>(async () => {});
+
+  useEffect(() => {
+    if (!auth.token || !activeChannel) return;
+    const targetChatId = activeChannel.chatid;
+    const targetIdStr = String(targetChatId);
+    let lastId = 0;
+    let cancelled = false;
+
+    const poll = async () => {
+      if (!auth.token) return;
+      try {
+        const res = await chatApi.getMessages(auth.token, targetChatId, lastId);
+        if (cancelled) return;
+        const rawMsgs = res.messages ?? [];
+        if (rawMsgs.length > 0) {
+          lastId = Math.max(lastId, ...rawMsgs.map((m) => Number(m.id)));
+          const parsedMsgs = rawMsgs.map((m) =>
+            parseChatMessage(m, auth.userId, auth.token ?? undefined),
+          );
+          setChannels((prev) =>
+            prev.map((c) => {
+              if (c.id !== targetIdStr) return c;
+              const knownIds = new Set(c.messages.map((x) => x.id));
+              const merged = [...c.messages, ...parsedMsgs.filter((x) => !knownIds.has(x.id))];
+              return { ...c, messages: merged };
+            }),
+          );
+        }
+      } catch {
+        // Ignore transient polling errors for non-existent/unjoined rooms
+      }
+    };
+
+    pollMessagesNow.current = poll;
+    poll();
+
+    const timer = window.setInterval(poll, POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [auth.token, auth.userId, activeChannel.chatid]);
+
+  // Also preload messages for archived room when archive screen opens
+  useEffect(() => {
+    if (screen !== 'archive' || !auth.token) return;
+    const arch = channels.find((c) => c.archived);
+    if (!arch) return;
+    chatApi
+      .getMessages(auth.token, arch.chatid, 0)
+      .then((res) => {
+        const parsed = (res.messages ?? []).map((m) =>
+          parseChatMessage(m, auth.userId, auth.token ?? undefined),
+        );
+        setChannels((prev) =>
+          prev.map((c) => (c.id === arch.id ? { ...c, messages: parsed } : c)),
+        );
+      })
+      .catch(() => {});
+  }, [screen, auth.token, auth.userId, channels.length]);
 
   const markOb = (n: number) => setObDone((d) => (d.includes(n) ? d : [...d, n]));
 
@@ -275,7 +340,59 @@ function useAppState() {
     toast('Abgemeldet');
   };
 
-  // ── Room & Group creation / joining connected to chatApi ──
+  // ── Messages & Attachments (postmessage) ──
+  const sendMessage = async (chId: string, text: string) => {
+    const target = channel(chId) ?? activeChannel;
+    if (!auth.token || !text.trim() || target.archived) return;
+    try {
+      await chatApi.postMessage(auth.token, {
+        chatid: target.chatid,
+        text: text.trim(),
+      });
+      await pollMessagesNow.current();
+    } catch (e) {
+      toast(formatError(e));
+    }
+  };
+
+  const attachFile = async (chId: string, selectedFile?: File) => {
+    const target = channel(chId) ?? activeChannel;
+    if (!auth.token || target.archived) return;
+
+    try {
+      if (selectedFile) {
+        const base64 = await fileToBase64(selectedFile);
+        const isImg = selectedFile.type.startsWith('image/');
+        const sizeLabel = formatFileSize(selectedFile.size);
+        const metaText = `[ATTACHMENT::${selectedFile.name}::${sizeLabel}::${isImg ? 'img' : 'pdf'}]`;
+
+        await chatApi.postMessage(auth.token, {
+          chatid: target.chatid,
+          text: metaText,
+          photo: isImg ? base64 : undefined,
+          file: !isImg ? base64 : undefined,
+        });
+      } else {
+        // Fallback quick-attach if triggered without file picker
+        const n =
+          target.messages.filter((m) => m.file && m.from === 'self').length + 1;
+        const fname = `Notizen_${n}.pdf`;
+        const fsize = `${120 + n * 37} KB`;
+        const metaText = `[ATTACHMENT::${fname}::${fsize}::pdf]`;
+        await chatApi.postMessage(auth.token, {
+          chatid: target.chatid,
+          text: metaText,
+          file: 'data:application/pdf;base64,JVBERi0xLjQKJcfs...',
+        });
+      }
+      await pollMessagesNow.current();
+      toast('Datei hochgeladen');
+    } catch (e) {
+      toast(formatError(e));
+    }
+  };
+
+  // ── Room & Group creation / joining / leaving connected to chatApi ──
   const openChannel = (chId: string, push = true) => {
     setActiveChannelId(chId);
     const c = channel(chId);
@@ -285,6 +402,20 @@ function useAppState() {
   const openFile = (file: FileAtt, sharedBy: string, channelId: string) => {
     setOpenFile({ file, sharedBy, channelId });
     navigate('file');
+  };
+
+  const leaveChannel = async (chId: string) => {
+    const target = channel(chId);
+    if (!target || !auth.token) return;
+    try {
+      await chatApi.leaveChat(auth.token, target.chatid);
+      setChannels((cs) => cs.filter((c) => c.id !== chId));
+      toast(`${target.name} verlassen`);
+      back();
+      reloadRooms();
+    } catch (e) {
+      toast(formatError(e));
+    }
   };
 
   const createSubgroup = async (moduleId: string, name: string, type: string): Promise<string | undefined> => {
@@ -343,7 +474,6 @@ function useAppState() {
         [newId]: { pending: invitees, members: [{ id: 'self', role: 'Ersteller' }] },
       }));
 
-      // Send real invitations via getprofiles + invite for any matching user IDs
       if (invitees.length > 0) {
         chatApi
           .getProfiles(auth.token)
@@ -380,7 +510,6 @@ function useAppState() {
 
     setModules((ms) => ms.map((x) => (x.id === id ? { ...x, joined: true } : x)));
 
-    // Check if the main channel for this module already exists in channels
     const existingMain = channels.find(
       (c) => !c.archived && c.moduleId === id && c.name === 'Hauptkanal',
     );
@@ -466,15 +595,20 @@ function useAppState() {
     activeChannelId,
     setActiveChannelId,
     openChannel,
+    leaveChannel,
     createSubgroup,
     createCustomGroup,
     joinModule,
 
-    // Messages, Invites & Notifications (Steps 4-6)
+    // Messages & Attachments
     typing,
     setTyping,
+    sendMessage,
+    attachFile,
     openFile,
     openFileState,
+
+    // Invites & Notifications (Step 5-6)
     subgroupModal,
     setSubgroupModal,
     inviteMap,

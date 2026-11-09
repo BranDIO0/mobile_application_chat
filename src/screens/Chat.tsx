@@ -1,12 +1,17 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   Archive as ArchiveIcon,
+  BellOff,
   ChevronDown,
   ChevronRight,
+  EllipsisVertical,
+  LogOut,
   MessageCircle,
   Plus,
+  UserPlus,
+  Users,
 } from 'lucide-react';
-import { MainHeader, SubHeader, TabBar } from '../components/Layout';
+import { ChatArea, InputBar, MainHeader, SubHeader, TabBar } from '../components/Layout';
 import type { Channel } from '../data/catalog';
 import { slugifyName } from '../data/catalog';
 import { useApp } from '../context/AppContext';
@@ -105,25 +110,62 @@ export function ChatView() {
   const p = useApp();
   const ch = p.activeChannel;
   const mod = p.moduleOf(ch);
+  const [menu, setMenu] = useState(false);
+
+  const item = (icon: ReactNode, label: string, fn: () => void) => (
+    <button
+      role="menuitem"
+      onClick={() => {
+        setMenu(false);
+        fn();
+      }}
+    >
+      {icon}
+      {label}
+    </button>
+  );
 
   return (
     <>
       <SubHeader
         title={ch.name}
         sub={`${mod ? `${mod.short} · WS26` : 'Eigene Gruppe'} · ${ch.members} Mitglieder`}
-      />
-      <div className="chat-area">
-        <div className="empty-chat">
-          Chat-Ansicht für <strong>{ch.name}</strong> (Nachrichten werden in Step 4 verbunden)
-        </div>
-      </div>
+      >
+        <button className="icon-btn" aria-label="Mitglieder" onClick={() => p.navigate('invite')}>
+          <Users size={22} />
+        </button>
+        <button className="icon-btn" aria-label="Mehr" onClick={() => setMenu(true)}>
+          <EllipsisVertical size={22} />
+        </button>
+      </SubHeader>
+      <ChatArea channel={ch} />
+      <InputBar channel={ch} />
+      {menu && (
+        <>
+          <div className="menu-backdrop" onClick={() => setMenu(false)} />
+          <div className="menu" role="menu">
+            {item(<UserPlus size={18} />, 'Mitglieder einladen', () => p.navigate('invite'))}
+            {mod &&
+              item(<Plus size={18} />, 'Untergruppe erstellen', () => p.setSubgroupModal(mod.id))}
+            {item(<BellOff size={18} />, 'Stummschalten', () =>
+              p.toast(`${ch.name} stummgeschaltet`),
+            )}
+            {ch.chatid !== 0 &&
+              item(<LogOut size={18} />, 'Gruppe verlassen', () => p.leaveChannel(ch.id))}
+          </div>
+        </>
+      )}
     </>
   );
 }
 
 export function Archive() {
   const p = useApp();
-  const ch = p.channels.find((c) => c.archived) ?? p.activeChannel;
+  const ch =
+    p.activeChannel.archived
+      ? p.activeChannel
+      : (p.channels.find((c) => c.archived) ?? p.activeChannel);
+
   return (
     <>
       <SubHeader title={ch.name} sub="SS25 · Archiviert" />
@@ -134,9 +176,8 @@ export function Archive() {
           Nur-Lese-Modus. Nachrichten und Dateien sind weiterhin abrufbar.
         </div>
       </div>
-      <div className="chat-area" style={{ background: '#f9fafb' }}>
-        <div className="empty-chat">Archivierte Nachrichten werden in Step 4 verbunden</div>
-      </div>
+      <ChatArea channel={ch} dateLabel="14. Juli 2025" />
+      <InputBar channel={ch} />
     </>
   );
 }
