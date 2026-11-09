@@ -1,8 +1,9 @@
-import { MainHeader, SubHeader, TabBar } from './components/Layout';
+import { SubHeader } from './components/Layout';
 import { AppProvider, useApp } from './context/AppContext';
+import { Notifications } from './screens/Account';
 import { Login, Onboarding, Register, Splash } from './screens/Auth';
 import { Archive, ChatView, Chats, SubgroupModal } from './screens/Chat';
-import { Catalog, FileView, FreeGroup } from './screens/Groups';
+import { Catalog, FileView, FreeGroup, Invitations, Invite } from './screens/Groups';
 
 function ScreenRouter() {
   const { screen } = useApp();
@@ -15,24 +16,16 @@ function ScreenRouter() {
   if (screen === 'archive') return <Archive />;
   if (screen === 'catalog') return <Catalog />;
   if (screen === 'freegroup') return <FreeGroup />;
+  if (screen === 'invite') return <Invite />;
+  if (screen === 'invitations') return <Invitations />;
   if (screen === 'file') return <FileView />;
+  if (screen === 'notifications') return <Notifications />;
 
-  if (screen === 'invitations' || screen === 'notifications') {
-    return (
-      <>
-        <MainHeader title={screen === 'invitations' ? 'Einladungen' : 'Benachrichtigungen'} />
-        <div className="scrollable">
-          <div className="empty-state">Screen „{screen}“ (wird in Step 5 verbunden)</div>
-        </div>
-        <TabBar active={screen} />
-      </>
-    );
-  }
   return (
     <>
       <SubHeader title={screen} />
       <div className="form-body">
-        <div className="empty-state">Screen „{screen}“ bereit für Migration.</div>
+        <div className="empty-state">Screen „{screen}“ (wird in Step 6 verbunden)</div>
       </div>
     </>
   );

@@ -1,8 +1,17 @@
 import { useState } from 'react';
-import { Check, Download, FileText, Image, Search, Share2, X } from 'lucide-react';
+import {
+  Check,
+  Download,
+  FileText,
+  Image,
+  MessageCircle,
+  Search,
+  Share2,
+  X,
+} from 'lucide-react';
 import { CATEGORIES } from '../data/catalog';
 import { MainHeader, SubHeader, TabBar } from '../components/Layout';
-import { useApp } from '../context/AppContext';
+import { initials, useApp } from '../context/AppContext';
 
 export function Catalog() {
   const { modules, joinModule } = useApp();
@@ -168,6 +177,177 @@ export function FreeGroup() {
           {busy ? 'Erstelle Gruppe…' : 'Gruppe erstellen'}
         </button>
       </form>
+    </>
+  );
+}
+
+export function Invite() {
+  const p = useApp();
+  const ch = p.activeChannel;
+  const st = p.inviteState(ch.id);
+  const [user, setUser] = useState('');
+  const [err, setErr] = useState('');
+
+  const submit = () => {
+    const v = user.trim().toLowerCase();
+    if (!v) return setErr('Bitte ein Kürzel eingeben');
+    if (!/^[a-z]{4,6}\w{0,4}$/i.test(v)) return setErr('Ungültiges Kürzel (z. B. asesit00)');
+    if (st.pending.includes(v) || st.members.some((m) => m.id.toLowerCase() === v))
+      return setErr(`${v} ist bereits eingeladen oder Mitglied`);
+    p.sendInvite(ch.id, v);
+    setUser('');
+    setErr('');
+  };
+
+  return (
+    <>
+      <SubHeader title="Einladen" sub={ch.name} />
+      <form
+        className="form-body"
+        style={{ gap: 12 }}
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
+      >
+        <div className="field">
+          <label htmlFor="inv-user">Hochschulkürzel *</label>
+          <input
+            id="inv-user"
+            className={err ? 'invalid' : ''}
+            type="text"
+            placeholder="asesit00"
+            value={user}
+            onChange={(e) => {
+              setUser(e.target.value);
+              setErr('');
+            }}
+          />
+          {err ? (
+            <span className="error">{err}</span>
+          ) : (
+            <span className="hint">Keine private Nummer nötig — nur das offizielle Kürzel</span>
+          )}
+        </div>
+        <button type="submit" className="btn-primary md">
+          Einladung senden
+        </button>
+        <div className="sec" style={{ padding: '10px 0 0' }}>
+          Einladungen ausstehend
+        </div>
+        {st.pending.length === 0 ? (
+          <div className="empty-state" style={{ padding: 0, textAlign: 'left' }}>
+            Keine offenen Einladungen.
+          </div>
+        ) : (
+          <div className="card-list">
+            {st.pending.map((u) => (
+              <div key={u} className="list-item">
+                <div className="avatar sm navy">{u[0]!.toUpperCase()}</div>
+                <div className="list-info">
+                  <span className="name">{u}</span>
+                  <span className="sub">Einladung ausstehend</span>
+                </div>
+                <button
+                  type="button"
+                  className="list-action red"
+                  onClick={() => p.withdrawInvite(ch.id, u)}
+                >
+                  Zurückziehen
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="sec" style={{ padding: '10px 0 0' }}>
+          Aktuelle Mitglieder
+        </div>
+        <div className="card-list">
+          {st.members.map((m) => {
+            const self = m.id === 'self';
+            return (
+              <div key={m.id} className="list-item">
+                <div className={`avatar sm${self ? '' : ' navy'}`}>
+                  {self ? initials(p.displayName)[0] : m.id[0]!.toUpperCase()}
+                </div>
+                <div className="list-info">
+                  <span className="name">{self ? `${p.userId} (Du)` : m.id}</span>
+                  <span className="sub">{m.role}</span>
+                </div>
+                {!self && (
+                  <button
+                    type="button"
+                    className="list-action"
+                    onClick={() => p.removeMember(ch.id, m.id)}
+                  >
+                    Entfernen
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </form>
+    </>
+  );
+}
+
+export function Invitations() {
+  const { invitations, respondInvitation } = useApp();
+  const open = invitations.filter((i) => i.status === 'open');
+  const archived = invitations.filter((i) => i.status !== 'open');
+
+  return (
+    <>
+      <MainHeader title="Einladungen" />
+      <div className="scrollable">
+        <div className="sec" style={{ paddingTop: 2 }}>
+          Offen ({open.length})
+        </div>
+        {open.length === 0 && <div className="empty-state">Keine offenen Einladungen.</div>}
+        {open.map((i) => (
+          <div key={i.id} className="invite-card">
+            <div className="invite-card-body">
+              <div className="room-icon">
+                <MessageCircle size={20} />
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <div className="invite-card-room">{i.room}</div>
+                <div className="invite-card-from">
+                  Von {i.from} · {i.when}
+                </div>
+              </div>
+            </div>
+            <div className="invite-card-actions">
+              <button className="btn-accept" onClick={() => respondInvitation(i.id, true)}>
+                Annehmen
+              </button>
+              <button className="btn-reject" onClick={() => respondInvitation(i.id, false)}>
+                Ablehnen
+              </button>
+            </div>
+          </div>
+        ))}
+        <div className="sec">Archiviert</div>
+        {archived.map((i) => (
+          <div key={i.id} className="list-item">
+            <div className={`avatar sm ${i.status === 'accepted' ? 'green' : 'grey'}`}>
+              {i.status === 'accepted' ? (
+                <Check size={15} strokeWidth={3} />
+              ) : (
+                <X size={15} strokeWidth={3} />
+              )}
+            </div>
+            <div className="list-info">
+              <span className="name">{i.room}</span>
+              <span className="sub">
+                {i.status === 'accepted' ? 'Angenommen' : 'Abgelehnt'} · {i.when}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+      <TabBar active="invitations" />
     </>
   );
 }

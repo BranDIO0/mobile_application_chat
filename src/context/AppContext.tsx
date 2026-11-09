@@ -31,12 +31,18 @@ export type OpenFile = { file: FileAtt; sharedBy: string; channelId: string };
 
 const POLL_INTERVAL_MS = 3000;
 
+const INITIAL_ARCHIVED_INVITATIONS: Invitation[] = [
+  { id: 'arch-1', chatid: 3, room: 'Übungsblatt 3 — Mathe 1', icon: '💬', from: 'abcdit09', when: '3 Tage her', status: 'accepted', channelName: 'Übungsblatt 3' },
+  { id: 'arch-2', chatid: 99, room: 'Gaming-Gruppe', icon: '🎮', from: 'abcdit77', when: '1 Woche her', status: 'rejected', channelName: 'Gaming-Gruppe' },
+];
+
 const INITIAL_NOTIFS: Notif[] = [
   { id: 'n1', unread: true, time: 'vor 2 Stunden', target: { type: 'invitations' }, html: <><strong>abcdit44</strong> hat dich zur <strong>Lerngruppe B</strong> eingeladen.</> },
   { id: 'n2', unread: true, time: 'vor 3 Stunden', target: { type: 'channel', channelId: '1' }, html: <><strong>[Dozent]</strong> prof.mueller hat eine neue Nachricht in <strong>Mathe 1</strong> gepostet.</> },
   { id: 'n3', unread: true, time: 'vor 4 Stunden', target: { type: 'channel', channelId: '2' }, html: <><strong>abcdit09</strong> hat eine Datei in <strong>Lerngruppe A</strong> geteilt.</> },
   { id: 'n4', unread: false, time: 'gestern', target: { type: 'channel', channelId: '4' }, html: <>Du bist <strong>Programmierung 1</strong> beigetreten.</> },
-  { id: 'n5', unread: false, time: 'vor 1 Monat', target: { type: 'archive' }, html: <>Kurs <strong>Mathe 1 (SS25)</strong> wurde archiviert. Nur-Lese-Modus aktiv.</> },
+  { id: 'n5', unread: false, time: 'vor 2 Tagen', target: { type: 'channel', channelId: '3' }, html: <><strong>abcdit09</strong> hat deine Einladung zu <strong>Übungsblatt 3</strong> angenommen.</> },
+  { id: 'n6', unread: false, time: 'vor 1 Monat', target: { type: 'archive' }, html: <>Kurs <strong>Mathe 1 (SS25)</strong> wurde archiviert. Nur-Lese-Modus aktiv.</> },
 ];
 
 function useAppState() {
@@ -77,7 +83,7 @@ function useAppState() {
   const [openFileState, setOpenFile] = useState<OpenFile>({ file: TAFEL, sharedBy: 'abcdit09', channelId: '2' });
   const [subgroupModal, setSubgroupModal] = useState<string | null>(null);
   const [inviteMap, setInviteMap] = useState<Record<string, InviteState>>({});
-  const [invitations, setInvitations] = useState<Invitation[]>([]);
+  const [invitations, setInvitations] = useState<Invitation[]>(INITIAL_ARCHIVED_INVITATIONS);
   const [notifs, setNotifs] = useState<Notif[]>(INITIAL_NOTIFS);
   const [settings, setSettings] = useState({ push: true, mentionsOnly: false, showArchived: true });
   const [collapsed, setCollapsed] = useState<string[]>([]);
@@ -172,8 +178,8 @@ function useAppState() {
       const serverInvites = (invitesRes.invites ?? []).map(parseChatInvite);
       setInvitations((prevInv) => {
         const archivedInv = prevInv.filter((i) => i.status !== 'open');
-        const archivedIds = new Set(archivedInv.map((i) => i.id));
-        const openFiltered = serverInvites.filter((i) => !archivedIds.has(i.id));
+        const archivedChatIds = new Set(archivedInv.map((i) => i.chatid));
+        const openFiltered = serverInvites.filter((i) => !archivedChatIds.has(i.chatid));
         return [...openFiltered, ...archivedInv];
       });
     } catch (e) {
@@ -188,7 +194,7 @@ function useAppState() {
       reloadRooms();
     } else {
       setChannels([]);
-      setInvitations([]);
+      setInvitations(INITIAL_ARCHIVED_INVITATIONS);
     }
   }, [auth.token, reloadRooms]);
 
@@ -373,7 +379,6 @@ function useAppState() {
           file: !isImg ? base64 : undefined,
         });
       } else {
-        // Fallback quick-attach if triggered without file picker
         const n =
           target.messages.filter((m) => m.file && m.from === 'self').length + 1;
         const fname = `Notizen_${n}.pdf`;
@@ -542,6 +547,92 @@ function useAppState() {
     toast(`${m.full} beigetreten`);
   };
 
+  // ── Members & Invitations (getprofiles, invite, getinvites, joinchat, rejectinvite) ──
+  const inviteState = (chId: string): InviteState => {
+    if (inviteMap[chId]) return inviteMap[chId];
+    const ch = channel(chId);
+    const dynamicSenders = Array.from(
+      new Set(
+        (ch?.messages ?? [])
+          .map((m) => m.senderId)
+          .filter((uid): uid is string => typeof uid === 'string' && uid.toLowerCase() !== auth.userId.toLowerCase()),
+      ),
+    );
+    const defaultMembers: Member[] = [
+      { id: 'self', role: 'Ersteller' },
+      ...(dynamicSenders.length > 0
+        ? dynamicSenders.map((uid) => ({ id: uid, role: 'Mitglied' }))
+        : [{ id: 'abcdit09', role: 'Mitglied' }]),
+    ];
+    return {
+      pending: ['abcdit44'],
+      members: defaultMembers,
+    };
+  };
+
+  const updateInvite = (chId: string, fn: (s: InviteState) => InviteState) =>
+    setInviteMap((m) => ({ ...m, [chId]: fn(m[chId] ?? inviteState(chId)) }));
+
+  const sendInvite = async (chId: string, targetUser: string) => {
+    const cleanUser = targetUser.trim().toLowerCase();
+    const targetChannel = channel(chId) ?? activeChannel;
+
+    updateInvite(chId, (s) => ({ ...s, pending: [...s.pending, cleanUser] }));
+    markOb(3);
+
+    if (auth.token) {
+      try {
+        const profRes = await chatApi.getProfiles(auth.token);
+        const found = (profRes.profiles ?? []).find(
+          (p) => p.userid.toLowerCase() === cleanUser,
+        );
+        if (found) {
+          await chatApi.invite(auth.token, targetChannel.chatid, found.hash);
+        }
+      } catch {
+        // Keep optimistic UI state if user has not registered on server yet
+      }
+    }
+    toast(`Einladung an ${cleanUser} gesendet`);
+  };
+
+  const withdrawInvite = (chId: string, user: string) => {
+    updateInvite(chId, (s) => ({ ...s, pending: s.pending.filter((p) => p !== user) }));
+    toast('Einladung zurückgezogen');
+  };
+
+  const removeMember = (chId: string, user: string) => {
+    updateInvite(chId, (s) => ({ ...s, members: s.members.filter((p) => p.id !== user) }));
+    toast(`${user} entfernt`);
+  };
+
+  const respondInvitation = async (id: string, accept: boolean) => {
+    const inv = invitations.find((i) => i.id === id);
+    if (!inv || !auth.token) return;
+
+    setInvitations((is) =>
+      is.map((i) =>
+        i.id === id
+          ? { ...i, status: accept ? 'accepted' : 'rejected', when: 'gerade eben' }
+          : i,
+      ),
+    );
+
+    try {
+      if (accept) {
+        await chatApi.joinChat(auth.token, inv.chatid);
+        await reloadRooms();
+        toast(`${inv.channelName} beigetreten`);
+      } else {
+        await chatApi.rejectInvite(auth.token, inv.chatid);
+        toast('Einladung abgelehnt');
+      }
+    } catch (e) {
+      toast(formatError(e));
+    }
+  };
+
+  // ── Notifications ──
   const markAllRead = () => setNotifs((ns) => ns.map((n) => ({ ...n, unread: false })));
   const openNotif = (n: Notif) => {
     setNotifs((ns) => ns.map((x) => (x.id === n.id ? { ...x, unread: false } : x)));
@@ -608,13 +699,15 @@ function useAppState() {
     openFile,
     openFileState,
 
-    // Invites & Notifications (Step 5-6)
+    // Invites, Members & Notifications
     subgroupModal,
     setSubgroupModal,
-    inviteMap,
-    setInviteMap,
+    inviteState,
+    sendInvite,
+    withdrawInvite,
+    removeMember,
     invitations,
-    setInvitations,
+    respondInvitation,
     notifs,
     setNotifs,
     markAllRead,
