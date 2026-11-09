@@ -13,6 +13,13 @@ import {
   type ScreenId,
 } from '../data/catalog';
 import { useAuth } from '../hooks/useAuth';
+import {
+  buildCustomGroupRoomName,
+  buildModuleMainRoomName,
+  buildSubgroupRoomName,
+  parseChatInvite,
+  parseChatRoom,
+} from '../utils/roomParser';
 
 export type Dir = 'push' | 'pop' | 'fade';
 export type Member = { id: string; role: string; hash?: string };
@@ -59,6 +66,7 @@ function useAppState() {
 
   const [modules, setModules] = useState<Module[]>(INITIAL_MODULES);
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [loadingRooms, setLoadingRooms] = useState(false);
   const [activeChannelId, setActiveChannelId] = useState<string>('2');
   const [typing, setTyping] = useState<string | null>(null);
   const [openFileState, setOpenFile] = useState<OpenFile>({ file: TAFEL, sharedBy: 'abcdit09', channelId: '2' });
@@ -128,6 +136,60 @@ function useAppState() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.sessionError]);
 
+  // ── Load rooms (getchats) and invites (getinvites) from Backend ──
+  const reloadRooms = useCallback(async () => {
+    if (!auth.token) return;
+    setLoadingRooms(true);
+    try {
+      const [chatsRes, invitesRes] = await Promise.all([
+        chatApi.getChats(auth.token),
+        chatApi.getInvites(auth.token).catch(() => ({ invites: [] })),
+      ]);
+
+      const rawRooms = chatsRes.chats ?? [];
+      setChannels((prev) => {
+        const msgMap = new Map(prev.map((c) => [c.id, c.messages]));
+        const parsed = rawRooms.map((r) => parseChatRoom(r, msgMap.get(String(r.chatid)) ?? []));
+        return parsed;
+      });
+
+      // Sync joined modules based on rooms returned by getchats
+      const joinedModIds = new Set(
+        rawRooms
+          .map((r) => parseChatRoom(r))
+          .filter((c) => !c.archived && c.moduleId)
+          .map((c) => c.moduleId!),
+      );
+      if (joinedModIds.size > 0) {
+        setModules((prevMods) =>
+          prevMods.map((m) => (joinedModIds.has(m.id) ? { ...m, joined: true } : m)),
+        );
+      }
+
+      // Merge open server invites with locally archived (accepted/rejected) invites
+      const serverInvites = (invitesRes.invites ?? []).map(parseChatInvite);
+      setInvitations((prevInv) => {
+        const archivedInv = prevInv.filter((i) => i.status !== 'open');
+        const archivedIds = new Set(archivedInv.map((i) => i.id));
+        const openFiltered = serverInvites.filter((i) => !archivedIds.has(i.id));
+        return [...openFiltered, ...archivedInv];
+      });
+    } catch (e) {
+      toast(formatError(e));
+    } finally {
+      setLoadingRooms(false);
+    }
+  }, [auth.token, toast]);
+
+  useEffect(() => {
+    if (auth.token) {
+      reloadRooms();
+    } else {
+      setChannels([]);
+      setInvitations([]);
+    }
+  }, [auth.token, reloadRooms]);
+
   const channel = (id: string) => channels.find((c) => c.id === id);
   const moduleOf = (c?: Channel) => modules.find((m) => m.id === c?.moduleId);
   const activeChannel: Channel = channel(activeChannelId) ??
@@ -164,7 +226,6 @@ function useAppState() {
       auth.setUserId(cleanId);
       auth.setToken(res.token, keep);
 
-      // Fetch user profile in background to update displayName if available
       chatApi
         .getProfiles(res.token)
         .then((profRes) => {
@@ -214,6 +275,7 @@ function useAppState() {
     toast('Abgemeldet');
   };
 
+  // ── Room & Group creation / joining connected to chatApi ──
   const openChannel = (chId: string, push = true) => {
     setActiveChannelId(chId);
     const c = channel(chId);
@@ -223,6 +285,132 @@ function useAppState() {
   const openFile = (file: FileAtt, sharedBy: string, channelId: string) => {
     setOpenFile({ file, sharedBy, channelId });
     navigate('file');
+  };
+
+  const createSubgroup = async (moduleId: string, name: string, type: string): Promise<string | undefined> => {
+    const mod = modules.find((m) => m.id === moduleId);
+    if (!mod || !auth.token) return undefined;
+    const rawName = buildSubgroupRoomName(mod, name);
+    try {
+      const res = await chatApi.createChat(auth.token, rawName, false);
+      const newChatId = Number(res.chatid);
+      const newId = String(newChatId);
+      const optimistic: Channel = {
+        id: newId,
+        chatid: newChatId,
+        rawName,
+        name: name.trim(),
+        icon: '💬',
+        moduleId,
+        members: 1,
+        visibility: 'private',
+        messages: [],
+      };
+      setChannels((cs) => [...cs.filter((c) => c.id !== newId), optimistic]);
+      setActiveChannelId(newId);
+      setSubgroupModal(null);
+      markOb(2);
+      toast(`${type} „${name.trim()}“ erstellt`);
+      reloadRooms();
+      return newId;
+    } catch (e) {
+      toast(formatError(e));
+      return undefined;
+    }
+  };
+
+  const createCustomGroup = async (name: string, type: string, invitees: string[]) => {
+    if (!auth.token) return;
+    const rawName = buildCustomGroupRoomName(name);
+    const icon = type === 'Studiengruppe' ? '📖' : type.startsWith('AStA') ? '🏛️' : '🔧';
+    try {
+      const res = await chatApi.createChat(auth.token, rawName, false);
+      const newChatId = Number(res.chatid);
+      const newId = String(newChatId);
+      const optimistic: Channel = {
+        id: newId,
+        chatid: newChatId,
+        rawName,
+        name: name.trim(),
+        icon,
+        members: 1,
+        visibility: 'private',
+        messages: [],
+      };
+      setChannels((cs) => [...cs.filter((c) => c.id !== newId), optimistic]);
+      setInviteMap((m) => ({
+        ...m,
+        [newId]: { pending: invitees, members: [{ id: 'self', role: 'Ersteller' }] },
+      }));
+
+      // Send real invitations via getprofiles + invite for any matching user IDs
+      if (invitees.length > 0) {
+        chatApi
+          .getProfiles(auth.token)
+          .then(async (profRes) => {
+            const profiles = profRes.profiles ?? [];
+            for (const targetUid of invitees) {
+              const found = profiles.find(
+                (p) => p.userid.toLowerCase() === targetUid.trim().toLowerCase(),
+              );
+              if (found && auth.token) {
+                await chatApi.invite(auth.token, newChatId, found.hash).catch(() => {});
+              }
+            }
+          })
+          .catch(() => {});
+      }
+
+      setActiveChannelId(newId);
+      replace('chat');
+      toast(
+        invitees.length
+          ? `Gruppe erstellt · ${invitees.length} Einladung(en) gesendet`
+          : 'Gruppe erstellt',
+      );
+      reloadRooms();
+    } catch (e) {
+      toast(formatError(e));
+    }
+  };
+
+  const joinModule = async (id: string) => {
+    const m = modules.find((x) => x.id === id);
+    if (!m || !auth.token) return;
+
+    setModules((ms) => ms.map((x) => (x.id === id ? { ...x, joined: true } : x)));
+
+    // Check if the main channel for this module already exists in channels
+    const existingMain = channels.find(
+      (c) => !c.archived && c.moduleId === id && c.name === 'Hauptkanal',
+    );
+    if (!existingMain) {
+      const rawName = buildModuleMainRoomName(m);
+      try {
+        const res = await chatApi.createChat(auth.token, rawName, true);
+        const newChatId = Number(res.chatid);
+        const newId = String(newChatId);
+        setChannels((cs) => [
+          ...cs,
+          {
+            id: newId,
+            chatid: newChatId,
+            rawName,
+            name: 'Hauptkanal',
+            icon: '💬',
+            moduleId: id,
+            members: m.participants + 1,
+            visibility: 'public',
+            messages: [],
+          },
+        ]);
+        reloadRooms();
+      } catch {
+        // Fallback if createChat fails
+      }
+    }
+    markOb(1);
+    toast(`${m.full} beigetreten`);
   };
 
   const markAllRead = () => setNotifs((ns) => ns.map((n) => ({ ...n, unread: false })));
@@ -265,17 +453,24 @@ function useAppState() {
     toastMsg,
     toast,
 
-    // Data state (will be connected to backend endpoints in Steps 3-6)
+    // Rooms, Catalog & Groups
     modules,
     setModules,
     channels,
     setChannels,
+    loadingRooms,
+    reloadRooms,
     channel,
     moduleOf,
     activeChannel,
     activeChannelId,
     setActiveChannelId,
     openChannel,
+    createSubgroup,
+    createCustomGroup,
+    joinModule,
+
+    // Messages, Invites & Notifications (Steps 4-6)
     typing,
     setTyping,
     openFile,

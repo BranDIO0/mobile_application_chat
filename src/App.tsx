@@ -1,6 +1,8 @@
 import { MainHeader, SubHeader, TabBar } from './components/Layout';
 import { AppProvider, useApp } from './context/AppContext';
 import { Login, Onboarding, Register, Splash } from './screens/Auth';
+import { Archive, ChatView, Chats, SubgroupModal } from './screens/Chat';
+import { Catalog, FreeGroup } from './screens/Groups';
 
 function ScreenRouter() {
   const { screen } = useApp();
@@ -8,18 +10,18 @@ function ScreenRouter() {
   if (screen === 'login') return <Login />;
   if (screen === 'register') return <Register />;
   if (screen === 'onboarding') return <Onboarding />;
+  if (screen === 'chats') return <Chats />;
+  if (screen === 'chat') return <ChatView />;
+  if (screen === 'archive') return <Archive />;
+  if (screen === 'catalog') return <Catalog />;
+  if (screen === 'freegroup') return <FreeGroup />;
 
-  if (
-    screen === 'chats' ||
-    screen === 'catalog' ||
-    screen === 'invitations' ||
-    screen === 'notifications'
-  ) {
+  if (screen === 'invitations' || screen === 'notifications') {
     return (
       <>
-        <MainHeader title={screen === 'chats' ? 'Chats' : screen} />
+        <MainHeader title={screen === 'invitations' ? 'Einladungen' : 'Benachrichtigungen'} />
         <div className="scrollable">
-          <div className="empty-state">Screen „{screen}“ (wird in den nächsten Steps verbunden)</div>
+          <div className="empty-state">Screen „{screen}“ (wird in Step 5 verbunden)</div>
         </div>
         <TabBar active={screen} />
       </>
@@ -36,7 +38,7 @@ function ScreenRouter() {
 }
 
 function PhoneShell() {
-  const { navKey, dir, toastMsg } = useApp();
+  const { navKey, dir, subgroupModal, toastMsg } = useApp();
   return (
     <main className="app-stage">
       <div className="phone">
@@ -44,6 +46,7 @@ function PhoneShell() {
         <div key={navKey} className={`screen enter-${dir}`}>
           <ScreenRouter />
         </div>
+        {subgroupModal && <SubgroupModal />}
         {toastMsg && (
           <div key={toastMsg.id} className="toast" role="status">
             {toastMsg.text}
