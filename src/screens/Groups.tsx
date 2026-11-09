@@ -5,6 +5,7 @@ import {
   FileText,
   Image,
   MessageCircle,
+  Plus,
   Search,
   Share2,
   X,
@@ -14,7 +15,7 @@ import { MainHeader, SubHeader, TabBar } from '../components/Layout';
 import { initials, useApp } from '../context/AppContext';
 
 export function Catalog() {
-  const { modules, joinModule } = useApp();
+  const { modules, joinModule, setModuleModalOpen, setSubgroupModal } = useApp();
   const [q, setQ] = useState('');
   const needle = q.trim().toLowerCase();
   const list = modules.filter(
@@ -24,7 +25,7 @@ export function Catalog() {
   return (
     <>
       <MainHeader title="Modulkatalog" />
-      <div className="search-bar">
+      <div className="search-bar" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div className="search-wrap">
           <Search size={18} />
           <input
@@ -35,6 +36,14 @@ export function Catalog() {
             aria-label="Fach suchen"
           />
         </div>
+        <button
+          type="button"
+          className="btn-primary md"
+          style={{ height: 40, fontSize: 14 }}
+          onClick={() => setModuleModalOpen(true)}
+        >
+          <Plus size={18} /> Neues Modul (Kurs) erstellen
+        </button>
       </div>
       <div className="scrollable">
         {CATEGORIES.map((cat) => {
@@ -52,8 +61,19 @@ export function Catalog() {
                     </div>
                   </div>
                   {m.joined ? (
-                    <div className="joined-badge">
-                      <Check size={14} strokeWidth={2.6} /> Beigetreten
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <div className="joined-badge">
+                        <Check size={14} strokeWidth={2.6} /> Beigetreten
+                      </div>
+                      <button
+                        type="button"
+                        className="icon-btn"
+                        title="Untergruppe erstellen"
+                        onClick={() => setSubgroupModal(m.id)}
+                        style={{ background: 'var(--input)', width: 30, height: 30, borderRadius: 999 }}
+                      >
+                        <Plus size={16} />
+                      </button>
                     </div>
                   ) : (
                     <button className="join-btn" onClick={() => joinModule(m.id)}>
@@ -73,12 +93,12 @@ export function Catalog() {
 }
 
 export function FreeGroup() {
-  const { createCustomGroup } = useApp();
+  const { createCustomGroup, mockMode } = useApp();
   const [name, setName] = useState('');
   const [desc, setDesc] = useState('');
   const [type, setType] = useState('Freies Projekt');
   const [invitee, setInvitee] = useState('');
-  const [chips, setChips] = useState(['abcdit44', 'abcdit09']);
+  const [chips, setChips] = useState<string[]>(() => (mockMode ? ['abcdit44', 'abcdit09'] : []));
   const [busy, setBusy] = useState(false);
 
   const canCreate = !!name.trim() && !busy;
@@ -89,7 +109,7 @@ export function FreeGroup() {
     setBusy(false);
   };
   const addChip = () => {
-    const v = invitee.trim();
+    const v = invitee.trim().toLowerCase();
     if (v && !chips.includes(v)) setChips([...chips, v]);
     setInvitee('');
   };
@@ -114,11 +134,13 @@ export function FreeGroup() {
           <input
             id="fg-name"
             type="text"
-            placeholder="z. B. Webtech-Hackathon-Team"
+            maxLength={22}
+            placeholder="z. B. Webtech-Team"
             value={name}
             onChange={(e) => setName(e.target.value)}
             disabled={busy}
           />
+          <span className="hint">Wird als CUSTOM:{name.trim() || '<Name>'} auf dem Server angelegt</span>
         </div>
         <div className="field">
           <label htmlFor="fg-desc">Beschreibung</label>
@@ -187,21 +209,36 @@ export function Invite() {
   const st = p.inviteState(ch.id);
   const [user, setUser] = useState('');
   const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
 
-  const submit = () => {
-    const v = user.trim().toLowerCase();
+  const submit = async (targetId?: string) => {
+    const v = (targetId ?? user).trim().toLowerCase();
     if (!v) return setErr('Bitte ein Kürzel eingeben');
-    if (!/^[a-z]{4,6}\w{0,4}$/i.test(v)) return setErr('Ungültiges Kürzel (z. B. asesit00)');
+    if (!/^[a-z]{4,6}\w{0,4}$/i.test(v)) return setErr('Ungültiges Kürzel (z. B. jaehit00)');
     if (st.pending.includes(v) || st.members.some((m) => m.id.toLowerCase() === v))
       return setErr(`${v} ist bereits eingeladen oder Mitglied`);
-    p.sendInvite(ch.id, v);
-    setUser('');
+    setBusy(true);
     setErr('');
+    const errMsg = await p.sendInvite(ch.id, v);
+    setBusy(false);
+    if (errMsg) {
+      setErr(errMsg);
+    } else {
+      setUser('');
+    }
   };
+
+  // Registered server users who aren't invited/members yet
+  const availableServerUsers = p.profiles.filter(
+    (prof) =>
+      prof.userid.toLowerCase() !== p.userId.toLowerCase() &&
+      !st.pending.includes(prof.userid.toLowerCase()) &&
+      !st.members.some((m) => m.id.toLowerCase() === prof.userid.toLowerCase()),
+  );
 
   return (
     <>
-      <SubHeader title="Einladen" sub={ch.name} />
+      <SubHeader title="Einladen" sub={`${ch.name} (#${ch.chatid})`} />
       <form
         className="form-body"
         style={{ gap: 12 }}
@@ -216,12 +253,13 @@ export function Invite() {
             id="inv-user"
             className={err ? 'invalid' : ''}
             type="text"
-            placeholder="asesit00"
+            placeholder="z. B. jaehit00"
             value={user}
             onChange={(e) => {
               setUser(e.target.value);
               setErr('');
             }}
+            disabled={busy}
           />
           {err ? (
             <span className="error">{err}</span>
@@ -229,9 +267,40 @@ export function Invite() {
             <span className="hint">Keine private Nummer nötig — nur das offizielle Kürzel</span>
           )}
         </div>
-        <button type="submit" className="btn-primary md">
-          Einladung senden
+        <button type="submit" className="btn-primary md" disabled={busy}>
+          {busy ? 'Sende Einladung…' : 'Einladung senden'}
         </button>
+
+        {availableServerUsers.length > 0 && (
+          <>
+            <div className="sec" style={{ padding: '8px 0 0' }}>
+              Registrierte Nutzer auf dem Server ({availableServerUsers.length})
+            </div>
+            <div className="card-list">
+              {availableServerUsers.slice(0, 8).map((prof) => (
+                <div key={prof.hash} className="list-item">
+                  <div className="avatar sm navy">{prof.userid[0]!.toUpperCase()}</div>
+                  <div className="list-info">
+                    <span className="name">
+                      {prof.nickname}{' '}
+                      <span style={{ fontWeight: 400, color: 'var(--g500)' }}>({prof.userid})</span>
+                    </span>
+                    <span className="sub">{prof.fullname}</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="join-btn"
+                    disabled={busy}
+                    onClick={() => submit(prof.userid)}
+                  >
+                    Einladen
+                  </button>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
         <div className="sec" style={{ padding: '10px 0 0' }}>
           Einladungen ausstehend
         </div>
@@ -293,7 +362,10 @@ export function Invite() {
 }
 
 export function Invitations() {
-  const { invitations, respondInvitation } = useApp();
+  const { invitations, respondInvitation, joinRoomById, openChannel } = useApp();
+  const [joinId, setJoinId] = useState('');
+  const [joining, setJoining] = useState(false);
+
   const open = invitations.filter((i) => i.status === 'open');
   const archived = invitations.filter((i) => i.status !== 'open');
 
@@ -301,6 +373,55 @@ export function Invitations() {
     <>
       <MainHeader title="Einladungen" />
       <div className="scrollable">
+        <div style={{ padding: '4px 18px 8px' }}>
+          <form
+            className="panel"
+            style={{ padding: '10px 12px', gap: 8 }}
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const num = Number(joinId.trim());
+              if (!joinId.trim() || Number.isNaN(num) || joining) return;
+              setJoining(true);
+              const ok = await joinRoomById(num);
+              setJoining(false);
+              if (ok) {
+                setJoinId('');
+                openChannel(String(num));
+              }
+            }}
+          >
+            <div className="panel-title" style={{ fontSize: 13 }}>
+              Direkt per Raum-ID beitreten
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                type="number"
+                min={0}
+                placeholder="Raum-ID (z. B. 0 oder 12)"
+                value={joinId}
+                onChange={(e) => setJoinId(e.target.value)}
+                style={{
+                  flex: 1,
+                  background: 'var(--input)',
+                  border: '1.5px solid var(--input-border)',
+                  borderRadius: 10,
+                  padding: '6px 12px',
+                  fontSize: 14,
+                  outline: 'none',
+                }}
+              />
+              <button
+                type="submit"
+                className="join-btn"
+                disabled={!joinId.trim() || joining}
+                style={{ borderRadius: 10, padding: '6px 14px' }}
+              >
+                {joining ? '…' : 'Beitreten'}
+              </button>
+            </div>
+          </form>
+        </div>
+
         <div className="sec" style={{ paddingTop: 2 }}>
           Offen ({open.length})
         </div>
@@ -328,24 +449,28 @@ export function Invitations() {
             </div>
           </div>
         ))}
-        <div className="sec">Archiviert</div>
-        {archived.map((i) => (
-          <div key={i.id} className="list-item">
-            <div className={`avatar sm ${i.status === 'accepted' ? 'green' : 'grey'}`}>
-              {i.status === 'accepted' ? (
-                <Check size={15} strokeWidth={3} />
-              ) : (
-                <X size={15} strokeWidth={3} />
-              )}
-            </div>
-            <div className="list-info">
-              <span className="name">{i.room}</span>
-              <span className="sub">
-                {i.status === 'accepted' ? 'Angenommen' : 'Abgelehnt'} · {i.when}
-              </span>
-            </div>
-          </div>
-        ))}
+        {archived.length > 0 && (
+          <>
+            <div className="sec">Archiviert</div>
+            {archived.map((i) => (
+              <div key={i.id} className="list-item">
+                <div className={`avatar sm ${i.status === 'accepted' ? 'green' : 'grey'}`}>
+                  {i.status === 'accepted' ? (
+                    <Check size={15} strokeWidth={3} />
+                  ) : (
+                    <X size={15} strokeWidth={3} />
+                  )}
+                </div>
+                <div className="list-info">
+                  <span className="name">{i.room}</span>
+                  <span className="sub">
+                    {i.status === 'accepted' ? 'Angenommen' : 'Abgelehnt'} · {i.when}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </>
+        )}
       </div>
       <TabBar active="invitations" />
     </>
@@ -380,7 +505,7 @@ export function FileView() {
         </button>
       </SubHeader>
       <div className="file-preview">
-        {isImg && file.url && file.url.startsWith('data:image/') ? (
+        {isImg && file.url && file.url !== '#' ? (
           <img
             src={file.url}
             alt={file.name}

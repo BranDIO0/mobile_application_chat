@@ -3,17 +3,32 @@ import { ApiError } from './client';
 
 const STORAGE_KEY = 'hse_chat_mock_db_v2';
 const MODE_KEY = 'hse_chat_use_mock';
+const SERVER_MODE_KEY = 'hse_chat_server_mode';
+
+export type ServerMode = 'live' | 'backup' | 'mock';
+
+export function getServerMode(): ServerMode {
+  const saved = localStorage.getItem(SERVER_MODE_KEY);
+  if (saved === 'live' || saved === 'backup' || saved === 'mock') {
+    return saved;
+  }
+  const legacyMock = localStorage.getItem(MODE_KEY);
+  if (legacyMock === 'true') return 'mock';
+  return 'live';
+}
+
+export function setServerModeStore(mode: ServerMode): void {
+  localStorage.setItem(SERVER_MODE_KEY, mode);
+  localStorage.setItem(MODE_KEY, mode === 'mock' ? 'true' : 'false');
+  window.dispatchEvent(new Event('hse-mock-mode-change'));
+}
 
 export function isMockModeEnabled(): boolean {
-  const val = localStorage.getItem(MODE_KEY);
-  // Default to true if not set so the app works immediately offline/without HSE VPN
-  if (val === null) return true;
-  return val === 'true';
+  return getServerMode() === 'mock';
 }
 
 export function setMockModeEnabled(enabled: boolean): void {
-  localStorage.setItem(MODE_KEY, enabled ? 'true' : 'false');
-  window.dispatchEvent(new Event('hse-mock-mode-change'));
+  setServerModeStore(enabled ? 'mock' : 'live');
 }
 
 interface MockUser {
@@ -105,20 +120,19 @@ function createInitialDb(): MockDb {
       },
     ],
     rooms: [
-      { chatid: 1, chatname: 'WS26::MOD::Mathe_1::MAIN', visibility: 'public' },
-      { chatid: 2, chatname: 'WS26::MOD::Mathe_1::SUB::Lerngruppe_A', visibility: 'private' },
-      { chatid: 3, chatname: 'WS26::MOD::Mathe_1::SUB::Übungsblatt_3', visibility: 'private' },
-      { chatid: 4, chatname: 'WS26::MOD::Prog_1::MAIN', visibility: 'public' },
-      { chatid: 5, chatname: 'WS26::MOD::DB_Systeme::MAIN', visibility: 'public' },
-      { chatid: 6, chatname: 'CUSTOM::Webtech-Proj.', visibility: 'private' },
-      { chatid: 7, chatname: 'SS25::MOD::Mathe_1::MAIN', visibility: 'public' },
+      { chatid: 1, chatname: 'WS26:MOD:Mathe_1:MAIN', visibility: 'public' },
+      { chatid: 2, chatname: 'WS26:MOD:Mathe_1:SUB:Lerngruppe_A', visibility: 'private' },
+      { chatid: 3, chatname: 'WS26:MOD:Mathe_1:SUB:Übungsblatt_3', visibility: 'private' },
+      { chatid: 4, chatname: 'WS26:MOD:Prog_1:MAIN', visibility: 'public' },
+      { chatid: 5, chatname: 'WS26:MOD:DB_Systeme:MAIN', visibility: 'public' },
+      { chatid: 6, chatname: 'CUSTOM:Webtech-Proj.', visibility: 'private' },
+      { chatid: 7, chatname: 'SS25:MOD:Mathe_1:MAIN', visibility: 'public' },
     ],
     invites: [
-      { chatid: 8, chatname: 'WS26::MOD::Mathe_1::SUB::Lerngruppe_B', userid: 'abcdit44', usernick: 'abcdit44', visibility: 'private' },
-      { chatid: 9, chatname: 'CUSTOM::Webtech-Hackathon-Team', userid: 'abcdit23', usernick: 'abcdit23', visibility: 'private' },
+      { chatid: 8, chatname: 'WS26:MOD:Mathe_1:SUB:Lerngruppe_B', userid: 'abcdit44', usernick: 'abcdit44', visibility: 'private' },
+      { chatid: 9, chatname: 'CUSTOM:Webtech-Hackathon-Team', userid: 'abcdit23', usernick: 'abcdit23', visibility: 'private' },
     ],
     messages: [
-      // Room 1: Mathe 1 Hauptkanal
       {
         id: 1,
         chatid: 1,
@@ -146,7 +160,6 @@ function createInitialDb(): MockDb {
         important: true,
         text: 'Klausurvorbereitung: Aufgabe 3b ist jetzt auf Moodle.',
       },
-      // Room 2: Lerngruppe A
       {
         id: 4,
         chatid: 2,
@@ -193,7 +206,6 @@ function createInitialDb(): MockDb {
         important: true,
         text: 'Klausurvorbereitung: Aufgabe 3b ist jetzt auf Moodle.',
       },
-      // Room 3: Übungsblatt 3
       {
         id: 9,
         chatid: 3,
@@ -203,7 +215,6 @@ function createInitialDb(): MockDb {
         important: false,
         text: 'Wer übernimmt Aufgabe 2?',
       },
-      // Room 4: Prog 1 Hauptkanal
       {
         id: 10,
         chatid: 4,
@@ -231,7 +242,6 @@ function createInitialDb(): MockDb {
         important: true,
         text: 'Ja, README.md im Repo-Root reicht.',
       },
-      // Room 5: DB Systeme
       {
         id: 13,
         chatid: 5,
@@ -241,7 +251,6 @@ function createInitialDb(): MockDb {
         important: true,
         text: 'Ab nächster Woche findet die Übung in Raum S 1.07 statt.',
       },
-      // Room 6: Webtech-Proj.
       {
         id: 14,
         chatid: 6,
@@ -251,7 +260,6 @@ function createInitialDb(): MockDb {
         important: false,
         text: 'Repo ist angelegt, Einladungen sind raus.',
       },
-      // Room 7: Archiv Mathe 1 SS25
       {
         id: 15,
         chatid: 7,
@@ -339,7 +347,7 @@ export async function handleMockRequest<T = ApiResponse>(
   name: string,
   params: Record<string, string | number | boolean | undefined>,
 ): Promise<T> {
-  await delay(name === 'validatetoken' ? 600 : 180);
+  await delay(name === 'validatetoken' ? 500 : 150);
 
   const db = loadDb();
 
@@ -443,8 +451,7 @@ export async function handleMockRequest<T = ApiResponse>(
       const chatname = String(params.chatname ?? '').trim();
       const ispublic = params.ispublic !== false && params.ispublic !== 'false';
       if (chatname.length < 2) throwError(462);
-      // Note: Server limit is 30 chars, allow slightly longer in mock if needed or clamp
-      if (chatname.length > 50) throwError(463);
+      if (chatname.length > 30) throwError(463);
 
       const chatid = db.nextChatId++;
       db.rooms.push({

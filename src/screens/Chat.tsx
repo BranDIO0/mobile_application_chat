@@ -8,13 +8,15 @@ import {
   LogOut,
   MessageCircle,
   Plus,
+  Trash2,
   UserPlus,
   Users,
 } from 'lucide-react';
 import { ChatArea, InputBar, MainHeader, SubHeader, TabBar } from '../components/Layout';
 import type { Channel } from '../data/catalog';
-import { slugifyName } from '../data/catalog';
+import { CATEGORIES, slugifyName } from '../data/catalog';
 import { useApp } from '../context/AppContext';
+import { buildModuleMainRoomName, buildSubgroupRoomName } from '../utils/roomParser';
 
 function TreeGroup({
   id,
@@ -99,7 +101,31 @@ export function Chats() {
           addLabel="Neue Gruppe"
           onAdd={() => p.navigate('freegroup')}
         />
-        {settings.showArchived && <TreeGroup id="archive" title="Archiv SS25" items={archived} muted />}
+        {settings.showArchived && archived.length > 0 && (
+          <TreeGroup id="archive" title="Archiv SS25" items={archived} muted />
+        )}
+        <div style={{ padding: '10px 18px 4px' }}>
+          <button
+            type="button"
+            onClick={() => p.setModuleModalOpen(true)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              width: '100%',
+              padding: '10px 14px',
+              borderRadius: 'var(--r-md)',
+              border: '1.5px dashed rgba(255, 255, 255, 0.35)',
+              background: 'rgba(255, 255, 255, 0.06)',
+              color: '#fff',
+              fontSize: 14,
+              fontWeight: 600,
+            }}
+          >
+            <Plus size={18} /> Neues Modul (Kurs) anlegen
+          </button>
+        </div>
       </div>
       <TabBar active="chats" />
     </>
@@ -129,7 +155,7 @@ export function ChatView() {
     <>
       <SubHeader
         title={ch.name}
-        sub={`${mod ? `${mod.short} · WS26` : 'Eigene Gruppe'} · ${ch.members} Mitglieder`}
+        sub={`${mod ? `${mod.short} · WS26` : 'Eigene Gruppe'} · #${ch.chatid} · ${ch.members} Teiln.`}
       >
         <button className="icon-btn" aria-label="Mitglieder" onClick={() => p.navigate('invite')}>
           <Users size={22} />
@@ -152,6 +178,8 @@ export function ChatView() {
             )}
             {ch.chatid !== 0 &&
               item(<LogOut size={18} />, 'Gruppe verlassen', () => p.leaveChannel(ch.id))}
+            {ch.chatid !== 0 &&
+              item(<Trash2 size={18} />, 'Raum löschen', () => p.deleteChannel(ch.id))}
           </div>
         </>
       )}
@@ -191,6 +219,7 @@ export function SubgroupModal() {
 
   if (!mod) return null;
   const close = () => p.setSubgroupModal(null);
+  const previewName = buildSubgroupRoomName(mod, name.trim() || 'Name');
 
   return (
     <div className="modal-overlay" onClick={close}>
@@ -203,7 +232,7 @@ export function SubgroupModal() {
           setBusy(true);
           const createdId = await p.createSubgroup(mod.id, name.trim(), type);
           setBusy(false);
-          if (createdId && p.screen === 'chats') {
+          if (createdId && p.screen !== 'chat') {
             p.navigate('chat');
           }
         }}
@@ -223,8 +252,7 @@ export function SubgroupModal() {
             disabled={busy}
           />
           <span className="hint">
-            Gespeichert als WS26::MOD::{slugifyName(mod.short)}::SUB::
-            {name.trim() ? slugifyName(name) : '<Name>'}
+            Gespeichert als {previewName} ({previewName.length}/30 Zeichen)
           </span>
         </div>
         <div className="field">
@@ -237,6 +265,134 @@ export function SubgroupModal() {
         </div>
         <button type="submit" className="btn-primary md" disabled={!name.trim() || busy}>
           {busy ? 'Erstelle…' : 'Untergruppe erstellen'}
+        </button>
+        <button type="button" className="btn-secondary" onClick={close} disabled={busy}>
+          Abbrechen
+        </button>
+      </form>
+    </div>
+  );
+}
+
+export function ModuleModal() {
+  const p = useApp();
+  const [shortName, setShortName] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [code, setCode] = useState('');
+  const [prof, setProf] = useState('');
+  const [category, setCategory] = useState(CATEGORIES[0] ?? 'Pflicht — 1. Semester');
+  const [busy, setBusy] = useState(false);
+
+  if (!p.moduleModalOpen) return null;
+  const close = () => p.setModuleModalOpen(false);
+
+  const previewMod = {
+    id: 'preview',
+    slug: slugifyName(shortName.trim() || 'Modul'),
+    abbr: 'M',
+    short: shortName.trim() || 'Modul',
+    full: fullName.trim() || 'Modul',
+    code: code || 'INFB',
+    prof: prof || 'Prof.',
+    participants: 1,
+    category,
+    joined: true,
+  };
+  const previewServerName = buildModuleMainRoomName(previewMod);
+
+  return (
+    <div className="modal-overlay" onClick={close}>
+      <form
+        className="modal-sheet"
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!shortName.trim() || busy) return;
+          setBusy(true);
+          const createdId = await p.createModule(
+            shortName.trim(),
+            fullName.trim() || shortName.trim(),
+            code.trim(),
+            prof.trim(),
+            category,
+          );
+          setBusy(false);
+          if (createdId && p.screen !== 'chat') {
+            p.navigate('chat');
+          }
+        }}
+      >
+        <div className="modal-handle" />
+        <div className="modal-title">Neues Modul (Kurs) anlegen</div>
+        <div className="modal-sub">Erstellt das Modul + öffentlichen Hauptkanal auf dem Server</div>
+        <div className="field">
+          <label htmlFor="mod-short">Kurzname (für Seitenleiste, max. 14 Zeichen) *</label>
+          <input
+            id="mod-short"
+            type="text"
+            maxLength={14}
+            placeholder="z. B. Mobile UI"
+            value={shortName}
+            onChange={(e) => setShortName(e.target.value)}
+            autoFocus
+            disabled={busy}
+          />
+          <span className="hint">
+            Server-Raumname: {previewServerName} ({previewServerName.length}/30 Zeichen)
+          </span>
+        </div>
+        <div className="field">
+          <label htmlFor="mod-full">Vollständiger Modulname</label>
+          <input
+            id="mod-full"
+            type="text"
+            placeholder="z. B. Mobile User Interfaces"
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            disabled={busy}
+          />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <div className="field">
+            <label htmlFor="mod-code">Modul-Code</label>
+            <input
+              id="mod-code"
+              type="text"
+              placeholder="z. B. INFB501"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              disabled={busy}
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="mod-prof">Dozent/in</label>
+            <input
+              id="mod-prof"
+              type="text"
+              placeholder="z. B. Prof. Kohl"
+              value={prof}
+              onChange={(e) => setProf(e.target.value)}
+              disabled={busy}
+            />
+          </div>
+        </div>
+        <div className="field">
+          <label htmlFor="mod-cat">Kategorie</label>
+          <select
+            id="mod-cat"
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            disabled={busy}
+          >
+            {CATEGORIES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </div>
+        <button type="submit" className="btn-primary md" disabled={!shortName.trim() || busy}>
+          {busy ? 'Erstelle Modul…' : 'Modul & Hauptkanal erstellen'}
         </button>
         <button type="button" className="btn-secondary" onClick={close} disabled={busy}>
           Abbrechen

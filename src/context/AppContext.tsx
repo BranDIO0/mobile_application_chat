@@ -2,7 +2,15 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { formatError } from '../api/client';
 import { chatApi } from '../api/chatApi';
 import {
+  getServerMode,
+  isMockModeEnabled,
+  setServerModeStore,
+  type ServerMode,
+} from '../api/mockServer';
+import {
+  CATEGORIES,
   INITIAL_MODULES,
+  slugifyName,
   TAFEL,
   type Channel,
   type FileAtt,
@@ -13,6 +21,7 @@ import {
   type ScreenId,
 } from '../data/catalog';
 import { useAuth } from '../hooks/useAuth';
+import type { UserProfile } from '../types';
 import { fileToBase64 } from '../utils/fileToBase64';
 import {
   buildCustomGroupRoomName,
@@ -22,6 +31,7 @@ import {
   parseChatInvite,
   parseChatMessage,
   parseChatRoom,
+  syncModulesWithServerRooms,
 } from '../utils/roomParser';
 
 export type Dir = 'push' | 'pop' | 'fade';
@@ -31,12 +41,12 @@ export type OpenFile = { file: FileAtt; sharedBy: string; channelId: string };
 
 const POLL_INTERVAL_MS = 3000;
 
-const INITIAL_ARCHIVED_INVITATIONS: Invitation[] = [
+const MOCK_ARCHIVED_INVITATIONS: Invitation[] = [
   { id: 'arch-1', chatid: 3, room: 'Übungsblatt 3 — Mathe 1', icon: '💬', from: 'abcdit09', when: '3 Tage her', status: 'accepted', channelName: 'Übungsblatt 3' },
   { id: 'arch-2', chatid: 99, room: 'Gaming-Gruppe', icon: '🎮', from: 'abcdit77', when: '1 Woche her', status: 'rejected', channelName: 'Gaming-Gruppe' },
 ];
 
-const INITIAL_NOTIFS: Notif[] = [
+const MOCK_INITIAL_NOTIFS: Notif[] = [
   { id: 'n1', unread: true, time: 'vor 2 Stunden', target: { type: 'invitations' }, html: <><strong>abcdit44</strong> hat dich zur <strong>Lerngruppe B</strong> eingeladen.</> },
   { id: 'n2', unread: true, time: 'vor 3 Stunden', target: { type: 'channel', channelId: '1' }, html: <><strong>[Dozent]</strong> prof.mueller hat eine neue Nachricht in <strong>Mathe 1</strong> gepostet.</> },
   { id: 'n3', unread: true, time: 'vor 4 Stunden', target: { type: 'channel', channelId: '2' }, html: <><strong>abcdit09</strong> hat eine Datei in <strong>Lerngruppe A</strong> geteilt.</> },
@@ -47,6 +57,8 @@ const INITIAL_NOTIFS: Notif[] = [
 
 function useAppState() {
   const auth = useAuth();
+  const [serverMode, setServerModeState] = useState<ServerMode>(() => getServerMode());
+  const mockMode = serverMode === 'mock';
   const [stack, setStack] = useState<ScreenId[]>(['splash']);
   const [dir, setDir] = useState<Dir>('fade');
   const [navKey, setNavKey] = useState(0);
@@ -75,16 +87,24 @@ function useAppState() {
     localStorage.setItem('obDone', JSON.stringify(obDone));
   }, [obDone]);
 
-  const [modules, setModules] = useState<Module[]>(INITIAL_MODULES);
+  const [modules, setModules] = useState<Module[]>(() =>
+    INITIAL_MODULES.map((m) => ({ ...m, joined: isMockModeEnabled() ? m.joined : false })),
+  );
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [loadingRooms, setLoadingRooms] = useState(false);
-  const [activeChannelId, setActiveChannelId] = useState<string>('2');
+  const [activeChannelId, setActiveChannelId] = useState<string>('1');
   const [typing, setTyping] = useState<string | null>(null);
   const [openFileState, setOpenFile] = useState<OpenFile>({ file: TAFEL, sharedBy: 'abcdit09', channelId: '2' });
   const [subgroupModal, setSubgroupModal] = useState<string | null>(null);
+  const [moduleModalOpen, setModuleModalOpen] = useState(false);
   const [inviteMap, setInviteMap] = useState<Record<string, InviteState>>({});
-  const [invitations, setInvitations] = useState<Invitation[]>(INITIAL_ARCHIVED_INVITATIONS);
-  const [notifs, setNotifs] = useState<Notif[]>(INITIAL_NOTIFS);
+  const [invitations, setInvitations] = useState<Invitation[]>(() =>
+    isMockModeEnabled() ? MOCK_ARCHIVED_INVITATIONS : [],
+  );
+  const [notifs, setNotifs] = useState<Notif[]>(() =>
+    isMockModeEnabled() ? MOCK_INITIAL_NOTIFS : [],
+  );
   const [settings, setSettings] = useState({ push: true, mentionsOnly: false, showArchived: true });
   const [collapsed, setCollapsed] = useState<string[]>([]);
 
@@ -116,11 +136,13 @@ function useAppState() {
   const reset = (ids: ScreenId | ScreenId[], d: Dir = 'fade') => {
     setStack(Array.isArray(ids) ? ids : [ids]);
     setSubgroupModal(null);
+    setModuleModalOpen(false);
     bump(d);
   };
 
   const back = () => {
     setSubgroupModal(null);
+    setModuleModalOpen(false);
     setStack((s) => (s.length > 1 ? s.slice(0, -1) : ['chats']));
     bump('pop');
   };
@@ -136,6 +158,21 @@ function useAppState() {
     later(() => setToastMsg((t) => (t?.id === id ? null : t)), 2400);
   }, []);
 
+  const setServerMode = (mode: ServerMode) => {
+    setServerModeStore(mode);
+    setServerModeState(mode);
+    auth.syncModeToken(mode);
+    const useMock = mode === 'mock';
+    setChannels([]);
+    setInvitations(useMock ? MOCK_ARCHIVED_INVITATIONS : []);
+    setNotifs(useMock ? MOCK_INITIAL_NOTIFS : []);
+    setModules(INITIAL_MODULES.map((m) => ({ ...m, joined: useMock ? m.joined : false })));
+  };
+
+  const setMockMode = (useMock: boolean) => {
+    setServerMode(useMock ? 'mock' : 'live');
+  };
+
   useEffect(() => {
     if (auth.sessionError) {
       toast(auth.sessionError);
@@ -146,69 +183,109 @@ function useAppState() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.sessionError]);
 
-  // ── Load rooms (getchats) and invites (getinvites) from Backend ──
+  // ── Load rooms (getchats), invites (getinvites), and profiles (getprofiles) from Backend ──
   const reloadRooms = useCallback(async () => {
-    if (!auth.token) return;
+    if (!auth.token || !auth.isSessionReady) return;
     setLoadingRooms(true);
     try {
-      const [chatsRes, invitesRes] = await Promise.all([
+      const [chatsRes, invitesRes, profilesRes] = await Promise.all([
         chatApi.getChats(auth.token),
         chatApi.getInvites(auth.token).catch(() => ({ invites: [] })),
+        chatApi.getProfiles(auth.token).catch(() => ({ profiles: [] })),
       ]);
 
       const rawRooms = chatsRes.chats ?? [];
+      const fetchedProfiles = profilesRes.profiles ?? [];
+      setProfiles(fetchedProfiles);
+
+      // Update displayName if current user exists in server profiles
+      const myProfile = fetchedProfiles.find(
+        (p) => p.userid.toLowerCase() === auth.userId.toLowerCase(),
+      );
+      if (myProfile?.fullname) {
+        setDisplayName(myProfile.fullname);
+      } else if (myProfile?.nickname) {
+        setDisplayName(myProfile.nickname);
+      }
+
+      // Sync modules (including dynamically created server modules!)
+      let syncedMods: Module[] = [];
+      setModules((prevMods) => {
+        syncedMods = syncModulesWithServerRooms(rawRooms, prevMods, isMockModeEnabled());
+        return syncedMods;
+      });
+
       setChannels((prev) => {
         const msgMap = new Map(prev.map((c) => [c.id, c.messages]));
-        const parsed = rawRooms.map((r) => parseChatRoom(r, msgMap.get(String(r.chatid)) ?? []));
+        const joinedRooms = rawRooms.filter(
+          (r) => r.chatid === 0 || r.joined !== false,
+        );
+        const parsed = joinedRooms.map((r) =>
+          parseChatRoom(r, msgMap.get(String(r.chatid)) ?? [], syncedMods.length ? syncedMods : INITIAL_MODULES),
+        );
+        // If no room is active yet or active room is missing, pick the first room
+        if (parsed.length > 0 && !parsed.some((c) => c.id === activeChannelId)) {
+          setActiveChannelId(parsed[0]!.id);
+        }
         return parsed;
       });
 
-      const joinedModIds = new Set(
-        rawRooms
-          .map((r) => parseChatRoom(r))
-          .filter((c) => !c.archived && c.moduleId)
-          .map((c) => c.moduleId!),
+      const serverInvites = (invitesRes.invites ?? []).map((inv) =>
+        parseChatInvite(inv, syncedMods.length ? syncedMods : INITIAL_MODULES),
       );
-      if (joinedModIds.size > 0) {
-        setModules((prevMods) =>
-          prevMods.map((m) => (joinedModIds.has(m.id) ? { ...m, joined: true } : m)),
-        );
-      }
-
-      const serverInvites = (invitesRes.invites ?? []).map(parseChatInvite);
       setInvitations((prevInv) => {
         const archivedInv = prevInv.filter((i) => i.status !== 'open');
         const archivedChatIds = new Set(archivedInv.map((i) => i.chatid));
         const openFiltered = serverInvites.filter((i) => !archivedChatIds.has(i.chatid));
         return [...openFiltered, ...archivedInv];
       });
+
+      // Surface real server invitations as notifications in Live mode
+      if (!isMockModeEnabled() && serverInvites.length > 0) {
+        setNotifs((prevNotifs) => {
+          const existingIds = new Set(prevNotifs.map((n) => n.id));
+          const inviteNotifs: Notif[] = serverInvites
+            .filter((inv) => !existingIds.has(`inv-notif-${inv.id}`))
+            .map((inv) => ({
+              id: `inv-notif-${inv.id}`,
+              unread: true,
+              time: inv.when,
+              target: { type: 'invitations' as const },
+              html: (
+                <>
+                  <strong>{inv.from}</strong> hat dich zu <strong>{inv.room}</strong> eingeladen.
+                </>
+              ),
+            }));
+          return [...inviteNotifs, ...prevNotifs];
+        });
+      }
     } catch (e) {
       toast(formatError(e));
     } finally {
       setLoadingRooms(false);
     }
-  }, [auth.token, toast]);
+  }, [auth.token, auth.isSessionReady, auth.userId, activeChannelId, toast]);
 
   useEffect(() => {
-    if (auth.token) {
+    if (auth.token && auth.isSessionReady) {
       reloadRooms();
-    } else {
+    } else if (!auth.token) {
       setChannels([]);
-      setInvitations(INITIAL_ARCHIVED_INVITATIONS);
+      setInvitations(isMockModeEnabled() ? MOCK_ARCHIVED_INVITATIONS : []);
     }
-  }, [auth.token, reloadRooms]);
+  }, [auth.token, auth.isSessionReady, serverMode, reloadRooms]);
 
   const channel = (id: string) => channels.find((c) => c.id === id);
   const moduleOf = (c?: Channel) => modules.find((m) => m.id === c?.moduleId);
   const activeChannel: Channel = channel(activeChannelId) ??
     channels[0] ?? {
-      id: '1',
-      chatid: 1,
-      rawName: 'WS26::MOD::Mathe_1::MAIN',
-      name: 'Hauptkanal',
+      id: '0',
+      chatid: 0,
+      rawName: 'Main Chat',
+      name: 'Main Chat',
       icon: '💬',
-      moduleId: 'mathe1',
-      members: 120,
+      members: Math.max(1, profiles.length),
       messages: [],
     };
 
@@ -217,14 +294,14 @@ function useAppState() {
   const activeChatId = activeChannel.chatid;
 
   useEffect(() => {
-    if (!auth.token) return;
+    if (!auth.token || !auth.isSessionReady) return;
     const targetChatId = activeChatId;
     const targetIdStr = String(targetChatId);
     let lastId = 0;
     let cancelled = false;
 
     const poll = async () => {
-      if (!auth.token) return;
+      if (!auth.token || !auth.isSessionReady) return;
       try {
         const res = await chatApi.getMessages(auth.token, targetChatId, lastId);
         if (cancelled) return;
@@ -244,7 +321,7 @@ function useAppState() {
           );
         }
       } catch {
-        // Ignore transient polling errors for non-existent/unjoined rooms
+        // Ignore transient polling errors
       }
     };
 
@@ -256,13 +333,12 @@ function useAppState() {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [auth.token, auth.userId, activeChatId]);
+  }, [auth.token, auth.isSessionReady, auth.userId, activeChatId]);
 
   const archivedChatId = channels.find((c) => c.archived)?.chatid;
 
-  // Also preload messages for archived room when archive screen opens
   useEffect(() => {
-    if (screen !== 'archive' || !auth.token || archivedChatId === undefined) return;
+    if (screen !== 'archive' || !auth.token || !auth.isSessionReady || archivedChatId === undefined) return;
     const archIdStr = String(archivedChatId);
     chatApi
       .getMessages(auth.token, archivedChatId, 0)
@@ -275,22 +351,25 @@ function useAppState() {
         );
       })
       .catch(() => {});
-  }, [screen, auth.token, auth.userId, archivedChatId]);
+  }, [screen, auth.token, auth.isSessionReady, auth.userId, archivedChatId]);
 
   const markOb = (n: number) => setObDone((d) => (d.includes(n) ? d : [...d, n]));
 
   // ── Auth actions connected to chatApi ──
   const finishSplash = useCallback(() => {
-    if (auth.token && auth.remember) {
+    if (auth.token && auth.isSessionReady && auth.remember) {
       reset(onboarded ? 'chats' : 'onboarding');
     } else {
       reset('login');
     }
-  }, [auth.token, auth.remember, onboarded]);
+  }, [auth.token, auth.isSessionReady, auth.remember, onboarded]);
 
   const login = async (id: string, password: string, keep: boolean): Promise<string | null> => {
-    const cleanId = (id.trim() || auth.userId || 'asesit00').toLowerCase();
-    const cleanPw = password || 'password123';
+    const cleanId = (id.trim() || auth.userId || 'jaehit00').toLowerCase();
+    const cleanPw = password;
+    if (!cleanPw) {
+      return 'Bitte Passwort eingeben.';
+    }
     try {
       const res = await chatApi.login(cleanId, cleanPw);
       if (!res.token) {
@@ -302,7 +381,9 @@ function useAppState() {
       chatApi
         .getProfiles(res.token)
         .then((profRes) => {
-          const me = profRes.profiles?.find((p) => p.userid.toLowerCase() === cleanId);
+          const list = profRes.profiles ?? [];
+          setProfiles(list);
+          const me = list.find((p) => p.userid.toLowerCase() === cleanId);
           if (me?.fullname) setDisplayName(me.fullname);
           else if (me?.nickname) setDisplayName(me.nickname);
         })
@@ -317,11 +398,15 @@ function useAppState() {
     }
   };
 
-  const register = async (id: string, name: string, password: string): Promise<string | null> => {
+  const register = async (
+    id: string,
+    nicknameInput: string,
+    fullnameInput: string,
+    password: string,
+  ): Promise<string | null> => {
     const cleanId = id.trim().toLowerCase();
-    const display = name.trim() || cleanId;
-    const nick = display.slice(0, 30);
-    const full = display.length >= 2 ? display.slice(0, 30) : `${cleanId} (Studierender)`;
+    const nick = (nicknameInput.trim() || cleanId).slice(0, 30);
+    const full = (fullnameInput.trim() || nick).slice(0, 30);
 
     try {
       const res = await chatApi.register(cleanId, password, nick, full);
@@ -381,8 +466,7 @@ function useAppState() {
           file: !isImg ? base64 : undefined,
         });
       } else {
-        const n =
-          target.messages.filter((m) => m.file && m.from === 'self').length + 1;
+        const n = target.messages.filter((m) => m.file && m.from === 'self').length + 1;
         const fname = `Notizen_${n}.pdf`;
         const fsize = `${120 + n * 37} KB`;
         const metaText = `[ATTACHMENT::${fname}::${fsize}::pdf]`;
@@ -399,7 +483,7 @@ function useAppState() {
     }
   };
 
-  // ── Room & Group creation / joining / leaving connected to chatApi ──
+  // ── Room, Module & Subgroup creation / joining / leaving connected to chatApi ──
   const openChannel = (chId: string, push = true) => {
     setActiveChannelId(chId);
     const c = channel(chId);
@@ -425,12 +509,97 @@ function useAppState() {
     }
   };
 
+  const deleteChannel = async (chId: string) => {
+    const target = channel(chId);
+    if (!target || !auth.token) return;
+    try {
+      await chatApi.deleteChat(auth.token, target.chatid);
+      setChannels((cs) => cs.filter((c) => c.id !== chId));
+      toast(`${target.name} gelöscht`);
+      back();
+      reloadRooms();
+    } catch (e) {
+      toast(formatError(e));
+    }
+  };
+
+  /**
+   * Allows any user to create a brand-new Module (Course) on the server!
+   * Creates the Module entry and immediately creates its `WS26:MOD:<Slug>:MAIN` room via `createchat`.
+   */
+  const createModule = async (
+    shortName: string,
+    fullName: string,
+    codeInput: string,
+    profInput: string,
+    category: string,
+  ): Promise<string | undefined> => {
+    if (!auth.token) return undefined;
+    const shortClean = shortName.trim().slice(0, 14);
+    const fullClean = fullName.trim() || shortClean;
+    const slug = slugifyName(shortClean);
+    const words = shortClean.split(/\s+/).filter(Boolean);
+    const abbr =
+      words.length >= 2
+        ? `${words[0]![0]}${words[1]![0]}`.toUpperCase()
+        : shortClean.slice(0, 2).toUpperCase();
+
+    const newMod: Module = {
+      id: `mod_${slug.toLowerCase()}`,
+      slug,
+      abbr,
+      short: shortClean,
+      full: fullClean,
+      code: codeInput.trim() || `MOD-${abbr}`,
+      prof: profInput.trim() || displayName,
+      participants: 1,
+      category: category || CATEGORIES[0]!,
+      joined: true,
+    };
+
+    const rawName = buildModuleMainRoomName(newMod);
+    try {
+      const res = await chatApi.createChat(auth.token, rawName, true);
+      const newChatId = Number(res.chatid);
+      const newId = String(newChatId);
+
+      setModules((prev) => {
+        const exists = prev.some((m) => m.id === newMod.id);
+        return exists
+          ? prev.map((m) => (m.id === newMod.id ? { ...m, joined: true } : m))
+          : [...prev, newMod];
+      });
+
+      const mainChannel: Channel = {
+        id: newId,
+        chatid: newChatId,
+        rawName,
+        name: 'Hauptkanal',
+        icon: '💬',
+        moduleId: newMod.id,
+        members: 1,
+        visibility: 'public',
+        messages: [],
+      };
+      setChannels((cs) => [...cs.filter((c) => c.id !== newId), mainChannel]);
+      setActiveChannelId(newId);
+      setModuleModalOpen(false);
+      markOb(1);
+      toast(`Modul „${newMod.short}“ angelegt`);
+      reloadRooms();
+      return newId;
+    } catch (e) {
+      toast(formatError(e));
+      return undefined;
+    }
+  };
+
   const createSubgroup = async (moduleId: string, name: string, type: string): Promise<string | undefined> => {
     const mod = modules.find((m) => m.id === moduleId);
     if (!mod || !auth.token) return undefined;
     const rawName = buildSubgroupRoomName(mod, name);
     try {
-      const res = await chatApi.createChat(auth.token, rawName, false);
+      const res = await chatApi.createChat(auth.token, rawName, true);
       const newChatId = Number(res.chatid);
       const newId = String(newChatId);
       const optimistic: Channel = {
@@ -441,7 +610,7 @@ function useAppState() {
         icon: '💬',
         moduleId,
         members: 1,
-        visibility: 'private',
+        visibility: 'public',
         messages: [],
       };
       setChannels((cs) => [...cs.filter((c) => c.id !== newId), optimistic]);
@@ -462,7 +631,7 @@ function useAppState() {
     const rawName = buildCustomGroupRoomName(name);
     const icon = type === 'Studiengruppe' ? '📖' : type.startsWith('AStA') ? '🏛️' : '🔧';
     try {
-      const res = await chatApi.createChat(auth.token, rawName, false);
+      const res = await chatApi.createChat(auth.token, rawName, true);
       const newChatId = Number(res.chatid);
       const newId = String(newChatId);
       const optimistic: Channel = {
@@ -472,7 +641,7 @@ function useAppState() {
         name: name.trim(),
         icon,
         members: 1,
-        visibility: 'private',
+        visibility: 'public',
         messages: [],
       };
       setChannels((cs) => [...cs.filter((c) => c.id !== newId), optimistic]);
@@ -485,9 +654,10 @@ function useAppState() {
         chatApi
           .getProfiles(auth.token)
           .then(async (profRes) => {
-            const profiles = profRes.profiles ?? [];
+            const list = profRes.profiles ?? [];
+            setProfiles(list);
             for (const targetUid of invitees) {
-              const found = profiles.find(
+              const found = list.find(
                 (p) => p.userid.toLowerCase() === targetUid.trim().toLowerCase(),
               );
               if (found && auth.token) {
@@ -527,7 +697,7 @@ function useAppState() {
         const newChatId = Number(res.chatid);
         const newId = String(newChatId);
         setChannels((cs) => [
-          ...cs,
+          ...cs.filter((c) => c.id !== newId),
           {
             id: newId,
             chatid: newChatId,
@@ -540,13 +710,28 @@ function useAppState() {
             messages: [],
           },
         ]);
+        setActiveChannelId(newId);
         reloadRooms();
-      } catch {
-        // Fallback if createChat fails
+      } catch (e) {
+        toast(formatError(e));
       }
     }
     markOb(1);
     toast(`${m.full} beigetreten`);
+  };
+
+  const joinRoomById = async (targetChatId: number): Promise<boolean> => {
+    if (!auth.token) return false;
+    try {
+      await chatApi.joinChat(auth.token, targetChatId);
+      await reloadRooms();
+      setActiveChannelId(String(targetChatId));
+      toast(`Raum #${targetChatId} beigetreten`);
+      return true;
+    } catch (e) {
+      toast(formatError(e));
+      return false;
+    }
   };
 
   // ── Members & Invitations (getprofiles, invite, getinvites, joinchat, rejectinvite) ──
@@ -557,17 +742,21 @@ function useAppState() {
       new Set(
         (ch?.messages ?? [])
           .map((m) => m.senderId)
-          .filter((uid): uid is string => typeof uid === 'string' && uid.toLowerCase() !== auth.userId.toLowerCase()),
+          .filter(
+            (uid): uid is string =>
+              typeof uid === 'string' && uid.toLowerCase() !== auth.userId.toLowerCase(),
+          ),
       ),
     );
     const defaultMembers: Member[] = [
       { id: 'self', role: 'Ersteller' },
-      ...(dynamicSenders.length > 0
-        ? dynamicSenders.map((uid) => ({ id: uid, role: 'Mitglied' }))
-        : [{ id: 'abcdit09', role: 'Mitglied' }]),
+      ...dynamicSenders.map((uid) => ({ id: uid, role: 'Mitglied' })),
     ];
+    if (isMockModeEnabled() && defaultMembers.length === 1) {
+      defaultMembers.push({ id: 'abcdit09', role: 'Mitglied' });
+    }
     return {
-      pending: ['abcdit44'],
+      pending: isMockModeEnabled() ? ['abcdit44'] : [],
       members: defaultMembers,
     };
   };
@@ -575,27 +764,39 @@ function useAppState() {
   const updateInvite = (chId: string, fn: (s: InviteState) => InviteState) =>
     setInviteMap((m) => ({ ...m, [chId]: fn(m[chId] ?? inviteState(chId)) }));
 
-  const sendInvite = async (chId: string, targetUser: string) => {
+  const sendInvite = async (chId: string, targetUser: string): Promise<string | null> => {
     const cleanUser = targetUser.trim().toLowerCase();
     const targetChannel = channel(chId) ?? activeChannel;
+    if (!auth.token) return 'Nicht angemeldet';
 
-    updateInvite(chId, (s) => ({ ...s, pending: [...s.pending, cleanUser] }));
-    markOb(3);
+    try {
+      const profRes = await chatApi.getProfiles(auth.token);
+      const list = profRes.profiles ?? [];
+      setProfiles(list);
+      const found = list.find((p) => p.userid.toLowerCase() === cleanUser);
 
-    if (auth.token) {
-      try {
-        const profRes = await chatApi.getProfiles(auth.token);
-        const found = (profRes.profiles ?? []).find(
-          (p) => p.userid.toLowerCase() === cleanUser,
-        );
-        if (found) {
-          await chatApi.invite(auth.token, targetChannel.chatid, found.hash);
-        }
-      } catch {
-        // Keep optimistic UI state if user has not registered on server yet
+      if (!found && !isMockModeEnabled()) {
+        const msg = `Nutzer „${cleanUser}“ ist noch nicht auf dem Server registriert.`;
+        toast(msg);
+        return msg;
       }
+
+      if (found) {
+        await chatApi.invite(auth.token, targetChannel.chatid, found.hash);
+      }
+
+      updateInvite(chId, (s) => ({
+        ...s,
+        pending: s.pending.includes(cleanUser) ? s.pending : [...s.pending, cleanUser],
+      }));
+      markOb(3);
+      toast(`Einladung an ${cleanUser} gesendet`);
+      return null;
+    } catch (e) {
+      const errMsg = formatError(e);
+      toast(errMsg);
+      return errMsg;
     }
-    toast(`Einladung an ${cleanUser} gesendet`);
   };
 
   const withdrawInvite = (chId: string, user: string) => {
@@ -649,8 +850,12 @@ function useAppState() {
   };
 
   return {
-    // Auth
+    // Auth & Backend Mode
     ...auth,
+    serverMode,
+    setServerMode,
+    mockMode,
+    setMockMode,
     displayName,
     setDisplayName,
     onboarded,
@@ -680,6 +885,7 @@ function useAppState() {
     setModules,
     channels,
     setChannels,
+    profiles,
     loadingRooms,
     reloadRooms,
     channel,
@@ -689,9 +895,12 @@ function useAppState() {
     setActiveChannelId,
     openChannel,
     leaveChannel,
+    deleteChannel,
+    createModule,
     createSubgroup,
     createCustomGroup,
     joinModule,
+    joinRoomById,
 
     // Messages & Attachments
     typing,
@@ -701,9 +910,11 @@ function useAppState() {
     openFile,
     openFileState,
 
-    // Invites, Members & Notifications
+    // Modals, Invites, Members & Notifications
     subgroupModal,
     setSubgroupModal,
+    moduleModalOpen,
+    setModuleModalOpen,
     inviteState,
     sendInvite,
     withdrawInvite,

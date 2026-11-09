@@ -8,6 +8,11 @@ const proxy = {
     changeOrigin: true,
     rewrite: (path: string) => path.replace(/^\/api-proxy/, ''),
   },
+  '/api-backup-proxy': {
+    target: 'https://api.chat.throin.de',
+    changeOrigin: true,
+    rewrite: (path: string) => path.replace(/^\/api-backup-proxy/, ''),
+  },
 };
 
 // https://vite.dev/config/

@@ -1,5 +1,6 @@
 import { chatApi } from '../api/chatApi';
 import {
+  CATEGORIES,
   INITIAL_MODULES,
   isDozentUser,
   slugifyName,
@@ -13,31 +14,34 @@ import {
 import type { ChatInvite, ChatMessage, ChatRoom } from '../types';
 
 export const CURRENT_SEMESTER = 'WS26';
+export const MAX_CHATNAME_LENGTH = 30;
 
 /**
- * Matches:
- * - WS26::MOD::Mathe_1::MAIN
- * - WS26::MOD::Mathe_1::SUB::Lerngruppe_A
- * - SS25::MOD::Mathe_1::MAIN
- * - MOD::Mathe_1::MAIN
- * - MOD::Mathe_1::SUB::Lerngruppe_A
- */
-const MOD_REGEX = /^(?:(?<sem>[A-Z]{2}\d{2})::)?MOD::(?<mod>[^:]+)(?:::(?<kind>MAIN|SUB)(?:::(?<sub>.+))?)?$/i;
+  * Matches both "::" and ":" delimiter formats so names stay under the 30-char server limit:
+  * - WS26:MOD:Mathe_1:MAIN
+  * - WS26::MOD::Mathe_1::MAIN
+  * - WS26:MOD:Mathe_1:SUB:LG_A
+  * - WS26::MOD::Mathe_1::SUB::Lerngruppe_A
+  * - SS25:MOD:Mathe_1:MAIN
+  */
+const MOD_REGEX =
+  /^(?:(?<sem>[A-Z]{2}\d{2})::?|)?MOD::?(?<mod>[^:]+)(?:::?(?<kind>MAIN|SUB)(?:::?(?<sub>.+))?)?$/i;
 
 /**
- * Matches:
- * - CUSTOM::Webtech-Proj.
- * - WS26::CUSTOM::Webtech-Proj.
- */
-const CUSTOM_REGEX = /^(?:(?<sem>[A-Z]{2}\d{2})::)?CUSTOM::(?<name>.+)$/i;
+  * Matches:
+  * - CUSTOM:Webtech-Proj.
+  * - CUSTOM::Webtech-Proj.
+  * - WS26:CUSTOM:Webtech-Proj.
+  */
+const CUSTOM_REGEX = /^(?:(?<sem>[A-Z]{2}\d{2})::?|)?CUSTOM::?(?<name>.+)$/i;
 
 /**
- * Matches embedded attachment metadata in text:
- * [ATTACHMENT::Tafelanschrieb_VL3.jpg::1.2 MB::img]
- */
+  * Matches embedded attachment metadata in text:
+  * [ATTACHMENT::Tafelanschrieb_VL3.jpg::1.2 MB::img]
+  */
 const ATTACHMENT_REGEX = /^\[ATTACHMENT::(?<name>[^:]+)::(?<size>[^:]+)::(?<kind>img|pdf)\](?:\s*(?<rest>.*))?$/is;
 
-export function findModuleByToken(modToken: string, modules: Module[] = INITIAL_MODULES): Module | undefined {
+export function findModuleByToken(modToken: string, modules: Module[]): Module | undefined {
   const clean = modToken.trim().toLowerCase();
   const unslug = unslugifyName(modToken).toLowerCase();
   return modules.find(
@@ -46,14 +50,91 @@ export function findModuleByToken(modToken: string, modules: Module[] = INITIAL_
       m.slug.toLowerCase() === clean ||
       slugifyName(m.short).toLowerCase() === clean ||
       m.short.toLowerCase() === unslug ||
+      m.full.toLowerCase() === unslug ||
       m.code.toLowerCase() === clean,
   );
 }
 
-export function parseChatRoom(room: ChatRoom, existingMessages: Channel['messages'] = []): Channel {
+/**
+  * Creates a dynamic Module object when a user or server room creates a brand-new Module
+  * not in INITIAL_MODULES.
+  */
+export function createDynamicModuleFromToken(modToken: string, joined = true): Module {
+  const display = unslugifyName(modToken);
+  const slug = slugifyName(display);
+  const id = `mod_${slug.toLowerCase()}`;
+  const words = display.split(/\s+/).filter(Boolean);
+  const abbr =
+    words.length >= 2
+      ? `${words[0]![0]}${words[1]![0]}`.toUpperCase()
+      : display.slice(0, 2).toUpperCase();
+
+  return {
+    id,
+    slug,
+    abbr,
+    short: display.slice(0, 18),
+    full: display,
+    code: `MOD-${abbr}`,
+    prof: 'Hochschulkurs',
+    participants: 1,
+    category: CATEGORIES[2] ?? 'Wahlpflicht',
+    joined,
+  };
+}
+
+/**
+  * Discovers any user-created modules from server rooms (`getchats`) and merges them with existing modules.
+  */
+export function syncModulesWithServerRooms(rooms: ChatRoom[], currentModules: Module[], isMock: boolean): Module[] {
+  const nextModules = currentModules.map((m) => ({
+    ...m,
+    // In real server mode, joined status is determined by whether the user is a member of the module's room on the server
+    joined: isMock ? m.joined : false,
+  }));
+
+  for (const r of rooms) {
+    const rawName = String(r.chatname ?? '').trim();
+    const match = rawName.match(MOD_REGEX);
+    if (!match || !match.groups) continue;
+
+    const sem = (match.groups.sem ?? CURRENT_SEMESTER).toUpperCase();
+    if (sem !== CURRENT_SEMESTER) continue;
+
+    const modToken = match.groups.mod ?? '';
+    if (!modToken) continue;
+
+    // On the real server (openapi.yaml), getchats returns all public chats with `joined: boolean`
+    const isRoomJoined = r.joined !== undefined ? r.joined : r.role !== 'none' && r.role !== 'invited';
+
+    const existing = findModuleByToken(modToken, nextModules);
+    if (existing) {
+      if (isRoomJoined) existing.joined = true;
+      if (Array.isArray(r.participants) && r.participants.length > 0) {
+        existing.participants = Math.max(existing.participants, r.participants.length);
+      }
+    } else {
+      const dyn = createDynamicModuleFromToken(modToken, isRoomJoined);
+      if (Array.isArray(r.participants) && r.participants.length > 0) {
+        dyn.participants = r.participants.length;
+      }
+      nextModules.push(dyn);
+    }
+  }
+
+  return nextModules;
+}
+
+export function parseChatRoom(
+  room: ChatRoom,
+  existingMessages: Channel['messages'] = [],
+  modules: Module[] = INITIAL_MODULES,
+): Channel {
   const rawName = String(room.chatname ?? `Chat #${room.chatid}`).trim();
   const chatid = Number(room.chatid);
   const id = String(chatid);
+  const participantCount =
+    Array.isArray(room.participants) && room.participants.length > 0 ? room.participants.length : undefined;
 
   const modMatch = rawName.match(MOD_REGEX);
   if (modMatch && modMatch.groups) {
@@ -62,10 +143,11 @@ export function parseChatRoom(room: ChatRoom, existingMessages: Channel['message
     const kind = (modMatch.groups.kind ?? 'MAIN').toUpperCase();
     const subRaw = modMatch.groups.sub ?? '';
 
-    const matchedMod = findModuleByToken(modToken);
+    const matchedMod =
+      findModuleByToken(modToken, modules) ?? createDynamicModuleFromToken(modToken, true);
     const archived = sem !== CURRENT_SEMESTER;
     const isMain = kind === 'MAIN' || !subRaw;
-    const modDisplayName = matchedMod ? matchedMod.short : unslugifyName(modToken);
+    const modDisplayName = matchedMod.short;
 
     const name = archived
       ? isMain
@@ -75,7 +157,7 @@ export function parseChatRoom(room: ChatRoom, existingMessages: Channel['message
         ? 'Hauptkanal'
         : unslugifyName(subRaw);
 
-    const members = isMain ? (matchedMod?.participants ?? 90) : 5;
+    const members = participantCount ?? (isMain ? matchedMod.participants : 5);
 
     return {
       id,
@@ -83,7 +165,7 @@ export function parseChatRoom(room: ChatRoom, existingMessages: Channel['message
       rawName,
       name,
       icon: archived ? '📦' : '💬',
-      moduleId: archived ? undefined : matchedMod?.id,
+      moduleId: archived ? undefined : matchedMod.id,
       members,
       archived,
       visibility: room.visibility,
@@ -102,7 +184,7 @@ export function parseChatRoom(room: ChatRoom, existingMessages: Channel['message
       rawName,
       name,
       icon: archived ? '📦' : '🔧',
-      members: 4,
+      members: participantCount ?? 4,
       archived,
       visibility: room.visibility,
       messages: existingMessages,
@@ -115,23 +197,28 @@ export function parseChatRoom(room: ChatRoom, existingMessages: Channel['message
     rawName,
     name: rawName,
     icon: '💬',
-    members: room.visibility === 'public' ? 42 : 5,
+    members: participantCount ?? (room.visibility === 'public' ? 42 : 5),
     archived: false,
     visibility: room.visibility,
     messages: existingMessages,
   };
 }
 
-export function parseChatInvite(inv: ChatInvite): Invitation {
+export function parseChatInvite(inv: ChatInvite, modules: Module[] = INITIAL_MODULES): Invitation {
   const rawName = String(inv.chatname ?? `Raum #${inv.chatid}`).trim();
   const chatid = Number(inv.chatid);
-  const from = inv.usernick || inv.userid || 'abcdit44';
+  const from =
+    inv.usernick ||
+    inv.userid ||
+    inv.owner?.nickname ||
+    inv.owner?.userid ||
+    'Kommilitone';
 
   const modMatch = rawName.match(MOD_REGEX);
   if (modMatch && modMatch.groups) {
     const modToken = modMatch.groups.mod ?? '';
     const subRaw = modMatch.groups.sub ?? 'Hauptkanal';
-    const matchedMod = findModuleByToken(modToken);
+    const matchedMod = findModuleByToken(modToken, modules);
     const modLabel = matchedMod ? matchedMod.short : unslugifyName(modToken);
     const channelName = unslugifyName(subRaw);
     return {
@@ -140,7 +227,7 @@ export function parseChatInvite(inv: ChatInvite): Invitation {
       room: `${channelName} — ${modLabel}`,
       icon: '💬',
       from,
-      when: 'vor 2 Stunden',
+      when: 'gerade eben',
       status: 'open',
       moduleId: matchedMod?.id,
       channelName,
@@ -156,7 +243,7 @@ export function parseChatInvite(inv: ChatInvite): Invitation {
       room: channelName,
       icon: '🔧',
       from,
-      when: 'gestern',
+      when: 'gerade eben',
       status: 'open',
       channelName,
     };
@@ -179,17 +266,22 @@ function formatMessageTime(rawTime?: string): string {
     const d = new Date();
     return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
   }
-  // Expected server format: "YYYY-MM-DD HH:MM:SS"
-  const match = rawTime.match(/(\d{1,2}):(\d{2})/);
-  if (match) {
-    return `${Number(match[1])}:${match[2]}`;
+  // Matches standard HH:MM (e.g. "2026-11-09 10:12:00")
+  const colonMatch = rawTime.match(/(\d{1,2}):(\d{2})/);
+  if (colonMatch) {
+    return `${Number(colonMatch[1])}:${colonMatch[2]}`;
+  }
+  // Matches HSE server format Y-m-d_H-i-s (e.g. "2026-09-13_18-22-05")
+  const hseMatch = rawTime.match(/_(\d{2})-(\d{2})(?:-(\d{2}))?$/);
+  if (hseMatch) {
+    return `${Number(hseMatch[1])}:${hseMatch[2]}`;
   }
   return rawTime;
 }
 
 export function parseChatMessage(m: ChatMessage, currentUserId: string, token?: string): Msg {
   const isSelf = (m.userid ?? '').toLowerCase() === currentUserId.toLowerCase();
-  const senderLabel = isSelf ? 'self' : m.userid || m.usernick || 'Nutzer';
+  const senderLabel = isSelf ? 'self' : m.usernick || m.userid || 'Nutzer';
   const dozent = isDozentUser(m.userid, m.usernick);
   const time = formatMessageTime(m.time);
 
@@ -251,14 +343,28 @@ export function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/**
+  * Ensures any generated server room name stays <= 30 characters so `createchat` never fails with 463 on the real HSE server.
+  */
+function clampRoomName(name: string): string {
+  return name.slice(0, MAX_CHATNAME_LENGTH);
+}
+
 export function buildModuleMainRoomName(mod: Module): string {
-  return `${CURRENT_SEMESTER}::MOD::${slugifyName(mod.short)}::MAIN`;
+  const modKey = slugifyName(mod.slug || mod.short).slice(0, 14);
+  return clampRoomName(`${CURRENT_SEMESTER}:MOD:${modKey}:MAIN`);
 }
 
 export function buildSubgroupRoomName(mod: Module, subgroupName: string): string {
-  return `${CURRENT_SEMESTER}::MOD::${slugifyName(mod.short)}::SUB::${slugifyName(subgroupName)}`;
+  const modKey = slugifyName(mod.abbr || mod.short).slice(0, 7);
+  const prefix = `${CURRENT_SEMESTER}:MOD:${modKey}:SUB:`;
+  const maxSubLen = Math.max(2, MAX_CHATNAME_LENGTH - prefix.length);
+  const subKey = slugifyName(subgroupName).slice(0, maxSubLen);
+  return clampRoomName(`${prefix}${subKey}`);
 }
 
 export function buildCustomGroupRoomName(groupName: string): string {
-  return `CUSTOM::${groupName.trim()}`;
+  const prefix = 'CUSTOM:';
+  const maxLen = MAX_CHATNAME_LENGTH - prefix.length;
+  return clampRoomName(`${prefix}${groupName.trim().slice(0, maxLen)}`);
 }

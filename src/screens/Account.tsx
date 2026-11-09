@@ -2,17 +2,15 @@ import { useEffect, useState } from 'react';
 import { ChevronRight, LogOut, Settings as SettingsIcon } from 'lucide-react';
 import { formatError } from '../api/client';
 import { chatApi } from '../api/chatApi';
-import { isMockModeEnabled, setMockModeEnabled } from '../api/mockServer';
 import { MainHeader, SubHeader, TabBar, clickable } from '../components/Layout';
 import { useApp } from '../context/AppContext';
 
 export function Profile() {
   const p = useApp();
-  const { modules, channels, displayName, userId, token } = p;
+  const { modules, channels, displayName, userId, token, mockMode } = p;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(displayName);
 
-  // Sync profile name from backend getprofiles on mount
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
@@ -21,7 +19,7 @@ export function Profile() {
       .then((res) => {
         if (cancelled) return;
         const me = res.profiles?.find((u) => u.userid.toLowerCase() === userId.toLowerCase());
-        if (me?.fullname && displayName === 'Max Mustermann') {
+        if (me?.fullname) {
           p.setDisplayName(me.fullname);
           setDraft(me.fullname);
         }
@@ -35,12 +33,11 @@ export function Profile() {
 
   const joined = modules.filter((m) => m.joined);
   const subs = channels.filter((c) => !c.archived && (c.moduleId ? c.name !== 'Hauptkanal' : true));
-  const sent =
-    142 +
-    channels.reduce(
-      (n, c) => n + c.messages.filter((m) => m.from === 'self').length,
-      0,
-    );
+  const realSent = channels.reduce(
+    (n, c) => n + c.messages.filter((m) => m.from === 'self').length,
+    0,
+  );
+  const sent = mockMode ? 142 + realSent : realSent;
 
   const save = () => {
     if (draft.trim()) p.setDisplayName(draft.trim());
@@ -81,7 +78,7 @@ export function Profile() {
         </div>
         <div className="stat-row">
           <div className="stat-item">
-            <div className="stat-num">{joined.length + 2}</div>
+            <div className="stat-num">{joined.length}</div>
             <div className="stat-label">Kurse</div>
           </div>
           <div className="stat-item">
@@ -94,6 +91,11 @@ export function Profile() {
           </div>
         </div>
         <div className="sec">Aktive Kurse</div>
+        {joined.length === 0 && (
+          <div className="empty-state" style={{ padding: '12px 18px' }}>
+            Noch keinem Kurs beigetreten.
+          </div>
+        )}
         {joined.map((m) => {
           const chs = channels.filter((c) => !c.archived && c.moduleId === m.id);
           const subCount = chs.filter((c) => c.name !== 'Hauptkanal').length;
@@ -164,23 +166,34 @@ const Chev = () => <ChevronRight size={16} />;
 
 export function Settings() {
   const p = useApp();
-  const { settings: s, setSettings } = p;
-  const [mockMode, setMockMode] = useState(() => isMockModeEnabled());
+  const { settings: s, setSettings, serverMode, setServerMode } = p;
   const [deleting, setDeleting] = useState(false);
 
   const set = (k: keyof typeof s) => (v: boolean) => setSettings({ ...s, [k]: v });
-  const demo = (what: string) => () => p.toast(`${what} — im Prototyp nicht verfügbar`);
+  const demo = (what: string) => () => p.toast(`${what} — nicht verfügbar`);
   const shortName = p.displayName
     .split(' ')
     .map((w, i) => (i === 0 ? w : `${w[0]}.`))
     .join(' ');
 
-  const toggleServerMode = () => {
-    const next = !mockMode;
-    setMockModeEnabled(next);
-    setMockMode(next);
-    p.toast(next ? 'Server: Lokaler Mock-Modus aktiv' : 'Server: Live HSE-Server aktiv');
+  const cycleServerMode = () => {
+    const order: ('live' | 'backup' | 'mock')[] = ['live', 'backup', 'mock'];
+    const next = order[(order.indexOf(serverMode) + 1) % order.length]!;
+    setServerMode(next);
+    const labels = {
+      live: 'Server: HSE-Live (www2.hs-esslingen.de)',
+      backup: 'Server: Backup (api.chat.throin.de)',
+      mock: 'Server: Mockup-Daten (Lokal)',
+    };
+    p.toast(labels[next]);
   };
+
+  const serverModeLabel =
+    serverMode === 'live'
+      ? 'HSE-Server (Live)'
+      : serverMode === 'backup'
+        ? 'Backup (throin.de)'
+        : 'Lokaler Mock-Server';
 
   const handleDeleteAccount = async () => {
     if (deleting) return;
@@ -200,6 +213,60 @@ export function Settings() {
     <>
       <SubHeader title="Einstellungen" />
       <div className="scrollable">
+        <div className="sec">Datenquelle & Server</div>
+        <div style={{ padding: '10px 18px', background: '#fff', borderBottom: '1px solid var(--line)' }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr 1fr',
+              gap: 4,
+              background: 'var(--input)',
+              padding: 4,
+              borderRadius: 'var(--r-md)',
+              border: '1.5px solid var(--line)',
+            }}
+          >
+            {(
+              [
+                { id: 'live', label: 'HSE-Live', msg: 'HSE-Server (www2.hs-esslingen.de) aktiv' },
+                { id: 'backup', label: 'Backup-Server', msg: 'Backup-Server (api.chat.throin.de) aktiv' },
+                { id: 'mock', label: 'Mockup', msg: 'Mockup-Daten (Lokaler Server) aktiv' },
+              ] as const
+            ).map((opt) => {
+              const active = serverMode === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => {
+                    setServerMode(opt.id);
+                    p.toast(opt.msg);
+                  }}
+                  style={{
+                    padding: '6px 6px',
+                    borderRadius: 9,
+                    border: 'none',
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                    background: active ? 'var(--navy)' : 'transparent',
+                    color: active ? '#fff' : 'var(--g600)',
+                    transition: 'all 0.15s',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div className="setting-row" {...clickable(cycleServerMode)}>
+          <span className="s-label">Aktiver Endpunkt</span>
+          <span className="s-val">
+            {serverModeLabel} <Chev />
+          </span>
+        </div>
+
         <div className="sec">Konto</div>
         <div className="setting-row">
           <span className="s-label">Hochschulkürzel</span>
@@ -261,12 +328,6 @@ export function Settings() {
           <span className="s-label">Version</span>
           <span className="s-val">HEy! 1.0.0</span>
         </div>
-        <div className="setting-row" {...clickable(toggleServerMode)}>
-          <span className="s-label">Server</span>
-          <span className="s-val">
-            {mockMode ? 'hs-esslingen.de (Mock)' : 'hs-esslingen.de'} <Chev />
-          </span>
-        </div>
 
         <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
           <button className="btn-secondary" onClick={p.logout}>
@@ -314,8 +375,12 @@ export function Notifications() {
         </div>
         {fresh.map(item)}
         {!fresh.length && <div className="empty-state">Alles gelesen.</div>}
-        <div className="sec">Früher</div>
-        {old.map(item)}
+        {old.length > 0 && (
+          <>
+            <div className="sec">Früher</div>
+            {old.map(item)}
+          </>
+        )}
       </div>
       <TabBar active="notifications" />
     </>

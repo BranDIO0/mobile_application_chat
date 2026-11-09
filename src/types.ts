@@ -32,16 +32,30 @@ export interface NewMessage {
   important?: boolean;
 }
 
+export interface ChatParticipant {
+  hash: string;
+  nickname: string;
+  fullname: string;
+  userid: string;
+}
+
 export interface ChatRoom {
   chatid: number;
   chatname: string;
   visibility: 'public' | 'private';
-  role?: string;
+  role?: 'owner' | 'member' | 'invited' | 'admin' | 'none' | string;
+  joined?: boolean;
+  directchat?: boolean;
+  owner?: ChatParticipant | [];
+  participants?: ChatParticipant[];
+  invited?: ChatParticipant[];
 }
 
 export interface ChatInvite {
   chatid: number;
   chatname: string;
+  directchat?: boolean;
+  owner?: ChatParticipant;
   userid?: string;
   usernick?: string;
   visibility?: 'public' | 'private';
@@ -54,8 +68,12 @@ export interface UserProfile {
   hash: string;
 }
 
-/** Meaning of the application error codes (returned as HTTP status). */
+/** Meaning of the application error codes (returned as HTTP status, see openapi.yaml). */
 export const ERROR_CODES: Record<number, string> = {
+  400: 'Parameter "request" fehlt in der Anfrage',
+  401: 'Unbekannter Request-Befehl',
+  402: 'Ungültige Zeichen in einem Parameter (Sonderzeichen nicht erlaubt)',
+  405: 'Numerischer Wert für Parameter erwartet (z. B. chatid)',
   451: 'Ungültiges User-ID-Format (4 Buchstaben + "it" + 2 Ziffern, z. B. jaehit00)',
   452: 'Nutzer existiert bereits – bitte Login verwenden',
   453: 'Passwort zu kurz (mind. 6 Zeichen)',
@@ -63,13 +81,13 @@ export const ERROR_CODES: Record<number, string> = {
   455: 'Falsches Passwort',
   456: 'Token ungültig oder Sitzung abgelaufen – bitte neu anmelden',
   457: 'Ungültige Foto- oder Datei-ID',
-  458: 'Ungültige Chat-ID (Raum existiert nicht)',
-  459: 'Keine Berechtigung für diesen Chatraum',
-  460: 'Bereits Mitglied in diesem Chatraum',
-  461: 'Aktion für diesen Chatraum nicht erlaubt',
+  458: 'Ungültige Chat-ID oder keine Berechtigung/Einladung für diesen Raum',
+  459: 'Keine Admin-Berechtigung',
+  460: 'Aktion nur für den Eigentümer (Owner) des Chatraums erlaubt',
+  461: 'Verlassen nicht möglich (Eigentümer müssen den Raum löschen)',
   462: 'Chatname zu kurz (mind. 2 Zeichen)',
-  463: 'Chatname zu lang (max. 30 Zeichen)',
-  464: 'Ungültiger User-Hash',
+  463: 'Ungültiger User-Hash oder Name zu lang',
+  464: 'Hauptchat (Chat 0) kann nicht verlassen werden / Ungültiger User-Hash',
   465: 'Nutzer wurde bereits eingeladen',
   466: 'Nickname zu kurz (mind. 2 Zeichen)',
   467: 'Nickname zu lang (max. 30 Zeichen)',
