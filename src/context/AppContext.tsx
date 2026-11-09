@@ -1,4 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { formatError } from '../api/client';
+import { chatApi } from '../api/chatApi';
 import {
   INITIAL_MODULES,
   TAFEL,
@@ -33,21 +35,27 @@ function useAppState() {
   const [toastMsg, setToastMsg] = useState<{ id: number; text: string } | null>(null);
 
   const [displayName, setDisplayName] = useState(() => localStorage.getItem('displayName') ?? 'Max Mustermann');
-  const [remember, setRemember] = useState(() => localStorage.getItem('remember') !== 'false');
   const [onboarded, setOnboarded] = useState(() => localStorage.getItem('onboarded') === 'true');
-  const [obDone, setObDone] = useState<number[]>([]);
+  const [obDone, setObDone] = useState<number[]>(() => {
+    try {
+      const raw = localStorage.getItem('obDone');
+      return raw ? (JSON.parse(raw) as number[]) : [];
+    } catch {
+      return [];
+    }
+  });
 
   useEffect(() => {
     localStorage.setItem('displayName', displayName);
   }, [displayName]);
 
   useEffect(() => {
-    localStorage.setItem('remember', String(remember));
-  }, [remember]);
-
-  useEffect(() => {
     localStorage.setItem('onboarded', String(onboarded));
   }, [onboarded]);
+
+  useEffect(() => {
+    localStorage.setItem('obDone', JSON.stringify(obDone));
+  }, [obDone]);
 
   const [modules, setModules] = useState<Module[]>(INITIAL_MODULES);
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -109,6 +117,17 @@ function useAppState() {
     later(() => setToastMsg((t) => (t?.id === id ? null : t)), 2400);
   }, []);
 
+  // Show session error toast if token validation failed with 456
+  useEffect(() => {
+    if (auth.sessionError) {
+      toast(auth.sessionError);
+      if (screen !== 'login' && screen !== 'register' && screen !== 'splash') {
+        reset('login', 'pop');
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.sessionError]);
+
   const channel = (id: string) => channels.find((c) => c.id === id);
   const moduleOf = (c?: Channel) => modules.find((m) => m.id === c?.moduleId);
   const activeChannel: Channel = channel(activeChannelId) ??
@@ -125,12 +144,74 @@ function useAppState() {
 
   const markOb = (n: number) => setObDone((d) => (d.includes(n) ? d : [...d, n]));
 
-  const finishSplash = () => {
-    if (auth.token && remember) {
+  // ── Auth actions connected to chatApi ──
+  const finishSplash = useCallback(() => {
+    if (auth.token && auth.remember) {
       reset(onboarded ? 'chats' : 'onboarding');
     } else {
       reset('login');
     }
+  }, [auth.token, auth.remember, onboarded]);
+
+  const login = async (id: string, password: string, keep: boolean): Promise<string | null> => {
+    const cleanId = (id.trim() || auth.userId || 'asesit00').toLowerCase();
+    const cleanPw = password || 'password123';
+    try {
+      const res = await chatApi.login(cleanId, cleanPw);
+      if (!res.token) {
+        return 'Server hat kein gültiges Session-Token zurückgegeben.';
+      }
+      auth.setUserId(cleanId);
+      auth.setToken(res.token, keep);
+
+      // Fetch user profile in background to update displayName if available
+      chatApi
+        .getProfiles(res.token)
+        .then((profRes) => {
+          const me = profRes.profiles?.find((p) => p.userid.toLowerCase() === cleanId);
+          if (me?.fullname) setDisplayName(me.fullname);
+          else if (me?.nickname) setDisplayName(me.nickname);
+        })
+        .catch(() => {});
+
+      reset(onboarded ? 'chats' : 'onboarding', 'push');
+      return null;
+    } catch (err) {
+      const msg = formatError(err);
+      toast(msg);
+      return msg;
+    }
+  };
+
+  const register = async (id: string, name: string, password: string): Promise<string | null> => {
+    const cleanId = id.trim().toLowerCase();
+    const display = name.trim() || cleanId;
+    const nick = display.slice(0, 30);
+    const full = display.length >= 2 ? display.slice(0, 30) : `${cleanId} (Studierender)`;
+
+    try {
+      const res = await chatApi.register(cleanId, password, nick, full);
+      if (!res.token) {
+        return 'Server hat kein gültiges Session-Token zurückgegeben.';
+      }
+      auth.setUserId(cleanId);
+      setDisplayName(full);
+      setOnboarded(false);
+      setObDone([]);
+      auth.setToken(res.token, true);
+      reset('onboarding', 'push');
+      return null;
+    } catch (err) {
+      const msg = formatError(err);
+      toast(msg);
+      return msg;
+    }
+  };
+
+  const logout = async () => {
+    await auth.logout();
+    reset('login', 'pop');
+    toast('Abgemeldet');
   };
 
   const openChannel = (chId: string, push = true) => {
@@ -162,13 +243,14 @@ function useAppState() {
     ...auth,
     displayName,
     setDisplayName,
-    remember,
-    setRemember,
     onboarded,
     setOnboarded,
     obDone,
     markOb,
     finishSplash,
+    login,
+    register,
+    logout,
 
     // Navigation & UI
     screen,
@@ -183,7 +265,7 @@ function useAppState() {
     toastMsg,
     toast,
 
-    // Data state (will be connected to backend endpoints in Steps 2-6)
+    // Data state (will be connected to backend endpoints in Steps 3-6)
     modules,
     setModules,
     channels,

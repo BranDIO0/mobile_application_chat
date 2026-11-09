@@ -1,36 +1,20 @@
-import { useEffect } from 'react';
-import { MainHeader, SubHeader, TabBar, LOGO_SRC, StatusBar, clickable } from './components/Layout';
+import { MainHeader, SubHeader, TabBar } from './components/Layout';
 import { AppProvider, useApp } from './context/AppContext';
-
-function SplashPlaceholder() {
-  const { finishSplash } = useApp();
-  useEffect(() => {
-    const t = setTimeout(finishSplash, 1800);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  return (
-    <>
-      <StatusBar />
-      <div className="splash" {...clickable(finishSplash)} aria-label="Weiter">
-        <img src={LOGO_SRC} alt="HEy! Logo" />
-        <div className="splash-name">HEy!</div>
-        <div className="splash-sub">Hochschul-Kommunikation</div>
-        <div className="loader" aria-hidden>
-          <span />
-          <span />
-          <span />
-        </div>
-        <div className="splash-hint">Sitzung wird geprüft...</div>
-      </div>
-    </>
-  );
-}
+import { Login, Onboarding, Register, Splash } from './screens/Auth';
 
 function ScreenRouter() {
   const { screen } = useApp();
-  if (screen === 'splash') return <SplashPlaceholder />;
-  if (screen === 'chats' || screen === 'catalog' || screen === 'invitations' || screen === 'notifications') {
+  if (screen === 'splash') return <Splash />;
+  if (screen === 'login') return <Login />;
+  if (screen === 'register') return <Register />;
+  if (screen === 'onboarding') return <Onboarding />;
+
+  if (
+    screen === 'chats' ||
+    screen === 'catalog' ||
+    screen === 'invitations' ||
+    screen === 'notifications'
+  ) {
     return (
       <>
         <MainHeader title={screen === 'chats' ? 'Chats' : screen} />

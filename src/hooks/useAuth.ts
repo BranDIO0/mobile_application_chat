@@ -2,10 +2,14 @@ import { useEffect, useState } from 'react';
 import { ApiError } from '../api/client';
 import { chatApi } from '../api/chatApi';
 
-/** Holds user id + token, persists both in localStorage, and verifies stored tokens on startup. */
+/** Holds user id + token, persists both in localStorage (when remember is true), and verifies stored tokens on startup. */
 export function useAuth() {
-  const [userId, setUserId] = useState(() => localStorage.getItem('userId') ?? 'jaehit00');
-  const [token, setTokenState] = useState<string | null>(() => localStorage.getItem('token'));
+  const [userId, setUserId] = useState(() => localStorage.getItem('userId') ?? 'asesit00');
+  const [remember, setRememberState] = useState(() => localStorage.getItem('remember') !== 'false');
+  const [token, setTokenState] = useState<string | null>(() => {
+    if (localStorage.getItem('remember') === 'false') return null;
+    return localStorage.getItem('token');
+  });
   const [validatedToken, setValidatedToken] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
@@ -13,9 +17,18 @@ export function useAuth() {
   useEffect(() => localStorage.setItem('userId', userId), [userId]);
 
   useEffect(() => {
-    if (token) localStorage.setItem('token', token);
+    localStorage.setItem('remember', String(remember));
+    if (!remember) {
+      localStorage.removeItem('token');
+    } else if (token) {
+      localStorage.setItem('token', token);
+    }
+  }, [remember, token]);
+
+  useEffect(() => {
+    if (token && remember) localStorage.setItem('token', token);
     else localStorage.removeItem('token');
-  }, [token]);
+  }, [token, remember]);
 
   // Validate stored token automatically via validatetoken
   useEffect(() => {
@@ -47,8 +60,11 @@ export function useAuth() {
     };
   }, [token, validatedToken]);
 
-  const setToken = (nextToken: string | null) => {
+  const setToken = (nextToken: string | null, keepSession?: boolean) => {
     setSessionError(null);
+    if (keepSession !== undefined) {
+      setRememberState(keepSession);
+    }
     if (nextToken) setValidatedToken(nextToken);
     else setValidatedToken(null);
     setTokenState(nextToken);
@@ -77,6 +93,8 @@ export function useAuth() {
   return {
     userId,
     setUserId,
+    remember,
+    setRemember: setRememberState,
     token,
     setToken,
     validatingSession,
