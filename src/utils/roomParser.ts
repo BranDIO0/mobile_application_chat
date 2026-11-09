@@ -48,6 +48,8 @@ export function findModuleByToken(modToken: string, modules: Module[]): Module |
     (m) =>
       m.id.toLowerCase() === clean ||
       m.slug.toLowerCase() === clean ||
+      m.abbr.toLowerCase() === clean ||
+      slugifyName(m.abbr).toLowerCase() === clean ||
       slugifyName(m.short).toLowerCase() === clean ||
       m.short.toLowerCase() === unslug ||
       m.full.toLowerCase() === unslug ||
@@ -87,13 +89,28 @@ export function createDynamicModuleFromToken(modToken: string, joined = true): M
   * Discovers any user-created modules from server rooms (`getchats`) and merges them with existing modules.
   */
 export function syncModulesWithServerRooms(rooms: ChatRoom[], currentModules: Module[], isMock: boolean): Module[] {
-  const nextModules = currentModules.map((m) => ({
+  const initialIds = new Set(INITIAL_MODULES.map((m) => m.id));
+  const initialAbbrs = new Set(INITIAL_MODULES.map((m) => m.abbr.toLowerCase()));
+
+  // Keep all INITIAL_MODULES plus custom modules that aren't duplicates of an initial module's abbreviation
+  const cleanedModules = currentModules.filter(
+    (m) => initialIds.has(m.id) || !initialAbbrs.has(m.short.toLowerCase()),
+  );
+
+  const nextModules = cleanedModules.map((m) => ({
     ...m,
     // In real server mode, joined status is determined by whether the user is a member of the module's room on the server
     joined: isMock ? m.joined : false,
   }));
 
-  for (const r of rooms) {
+  // Process MAIN rooms before SUB rooms so custom modules are registered by their full slug before any subgroup abbreviations
+  const sortedRooms = [...rooms].sort((a, b) => {
+    const aIsSub = /:SUB:/i.test(a.chatname ?? '') ? 1 : 0;
+    const bIsSub = /:SUB:/i.test(b.chatname ?? '') ? 1 : 0;
+    return aIsSub - bIsSub;
+  });
+
+  for (const r of sortedRooms) {
     const rawName = String(r.chatname ?? '').trim();
     const match = rawName.match(MOD_REGEX);
     if (!match || !match.groups) continue;
@@ -356,7 +373,7 @@ export function buildModuleMainRoomName(mod: Module): string {
 }
 
 export function buildSubgroupRoomName(mod: Module, subgroupName: string): string {
-  const modKey = slugifyName(mod.abbr || mod.short).slice(0, 7);
+  const modKey = slugifyName(mod.slug || mod.short).slice(0, 10);
   const prefix = `${CURRENT_SEMESTER}:MOD:${modKey}:SUB:`;
   const maxSubLen = Math.max(2, MAX_CHATNAME_LENGTH - prefix.length);
   const subKey = slugifyName(subgroupName).slice(0, maxSubLen);

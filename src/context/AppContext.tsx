@@ -209,11 +209,8 @@ function useAppState() {
       }
 
       // Sync modules (including dynamically created server modules!)
-      let syncedMods: Module[] = [];
-      setModules((prevMods) => {
-        syncedMods = syncModulesWithServerRooms(rawRooms, prevMods, isMockModeEnabled());
-        return syncedMods;
-      });
+      const syncedMods = syncModulesWithServerRooms(rawRooms, INITIAL_MODULES, isMockModeEnabled());
+      setModules((prevMods) => syncModulesWithServerRooms(rawRooms, prevMods, isMockModeEnabled()));
 
       setChannels((prev) => {
         const msgMap = new Map(prev.map((c) => [c.id, c.messages]));
@@ -221,7 +218,7 @@ function useAppState() {
           (r) => r.chatid === 0 || r.joined !== false,
         );
         const parsed = joinedRooms.map((r) =>
-          parseChatRoom(r, msgMap.get(String(r.chatid)) ?? [], syncedMods.length ? syncedMods : INITIAL_MODULES),
+          parseChatRoom(r, msgMap.get(String(r.chatid)) ?? [], syncedMods),
         );
         // If no room is active yet or active room is missing, pick the first room
         if (parsed.length > 0 && !parsed.some((c) => c.id === activeChannelId)) {
