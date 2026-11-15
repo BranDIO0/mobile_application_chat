@@ -37,15 +37,36 @@ function TreeGroup({
   const closed = p.collapsed.includes(id);
   return (
     <div className="tree-group">
-      <button className="tree-head" onClick={() => p.toggleCollapsed(id)} aria-expanded={!closed}>
-        {closed ? (
-          <ChevronRight size={22} strokeWidth={2.6} />
-        ) : (
-          <ChevronDown size={22} strokeWidth={2.6} />
+      <div className="tree-head-row">
+        <button
+          type="button"
+          className="tree-head-toggle"
+          onClick={() => p.toggleCollapsed(id)}
+          aria-expanded={!closed}
+        >
+          {closed ? (
+            <ChevronRight size={20} strokeWidth={2.4} />
+          ) : (
+            <ChevronDown size={20} strokeWidth={2.4} />
+          )}
+          <span className="tree-title">{title}</span>
+          {closed && items.length > 0 && <span className="count">{items.length}</span>}
+        </button>
+        {onAdd && (
+          <button
+            type="button"
+            className="tree-head-action"
+            title={`${addLabel ?? 'Untergruppe'} hinzufügen`}
+            aria-label={`${addLabel ?? 'Untergruppe'} in ${title} hinzufügen`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onAdd();
+            }}
+          >
+            <Plus size={16} strokeWidth={2.4} />
+          </button>
         )}
-        {title}
-        {closed && items.length > 0 && <span className="count">{items.length}</span>}
-      </button>
+      </div>
       <div className={`tree-body${closed ? ' collapsed' : ''}`}>
         {items.map((c) => (
           <button
@@ -61,71 +82,188 @@ function TreeGroup({
             <span>{c.name}</span>
           </button>
         ))}
-        {!items.length && !onAdd && <div className="tree-item muted">Keine Kanäle</div>}
+        {!items.length && <div className="tree-item muted">Keine Kanäle</div>}
       </div>
-      {onAdd && (
-        <button className="tree-add" onClick={onAdd}>
-          <Plus size={20} strokeWidth={1.8} />
-          {addLabel}
-        </button>
-      )}
     </div>
   );
 }
 
 export function Chats() {
   const p = useApp();
-  const { modules, channels, settings } = p;
+  const { modules, channels, collapseAll, expandAll, collapsed } = p;
+  const [tab, setTab] = useState<'ws26' | 'custom' | 'archive'>('ws26');
+
   const joined = modules.filter((m) => m.joined);
   const custom = channels.filter((c) => !c.moduleId && !c.archived);
   const archived = channels.filter((c) => c.archived);
 
+  const ws26Count = joined.length;
+  const customCount = custom.length;
+  const archiveCount = archived.length;
+
+  const allJoinedCollapsed = joined.length > 0 && joined.every((m) => collapsed.includes(m.id));
+
   return (
     <>
       <MainHeader title="Chats" />
-      <div className="tree">
-        {joined.map((m) => (
-          <TreeGroup
-            key={m.id}
-            id={m.id}
-            title={m.short}
-            items={channels.filter((c) => !c.archived && c.moduleId === m.id)}
-            addLabel="Untergruppe"
-            onAdd={() => p.setSubgroupModal(m.id)}
-          />
-        ))}
-        <TreeGroup
-          id="custom"
-          title="Eigene Gruppen"
-          items={custom}
-          addLabel="Neue Gruppe"
-          onAdd={() => p.navigate('freegroup')}
-        />
-        {settings.showArchived && archived.length > 0 && (
-          <TreeGroup id="archive" title="Archiv SS25" items={archived} muted />
-        )}
-        <div style={{ padding: '10px 18px 4px' }}>
+      <div className="chat-filter-bar">
+        <div className="segmented-control" role="tablist" aria-label="Chat-Kategorien">
           <button
             type="button"
-            onClick={() => p.setModuleModalOpen(true)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 8,
-              width: '100%',
-              padding: '10px 14px',
-              borderRadius: 'var(--r-md)',
-              border: '1.5px dashed rgba(255, 255, 255, 0.35)',
-              background: 'rgba(255, 255, 255, 0.06)',
-              color: '#fff',
-              fontSize: 14,
-              fontWeight: 600,
-            }}
+            role="tab"
+            aria-selected={tab === 'ws26'}
+            className={`segmented-btn${tab === 'ws26' ? ' active' : ''}`}
+            onClick={() => setTab('ws26')}
           >
-            <Plus size={18} /> Neues Modul (Kurs) anlegen
+            <span>WS 26/27</span>
+            <span className="seg-badge">{ws26Count}</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'custom'}
+            className={`segmented-btn${tab === 'custom' ? ' active' : ''}`}
+            onClick={() => setTab('custom')}
+          >
+            <span>Eigene Gruppen</span>
+            {customCount > 0 && <span className="seg-badge">{customCount}</span>}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'archive'}
+            className={`segmented-btn${tab === 'archive' ? ' active' : ''}`}
+            onClick={() => setTab('archive')}
+          >
+            <span>Archiv (SS25)</span>
+            {archiveCount > 0 && <span className="seg-badge">{archiveCount}</span>}
           </button>
         </div>
+      </div>
+
+      <div className="chat-sub-toolbar">
+        {tab === 'ws26' && (
+          <>
+            <button
+              type="button"
+              className="toolbar-text-btn"
+              onClick={() => {
+                if (allJoinedCollapsed) {
+                  expandAll();
+                } else {
+                  collapseAll();
+                }
+              }}
+              title="Alle Module auf- oder einklappen"
+            >
+              {allJoinedCollapsed ? (
+                <>
+                  <ChevronDown size={15} /> Alle aufklappen
+                </>
+              ) : (
+                <>
+                  <ChevronRight size={15} /> Alle einklappen
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              className="toolbar-action-btn"
+              onClick={() => {
+                const targetModId = p.activeChannel?.moduleId ?? joined[0]?.id ?? 'mathe1';
+                p.setSubgroupModal(targetModId);
+              }}
+              title="Neue Gruppe oder Untergruppe anlegen"
+            >
+              <Plus size={16} strokeWidth={2.4} />
+              <span>Gruppe / Untergruppe</span>
+            </button>
+          </>
+        )}
+        {tab === 'custom' && (
+          <div style={{ display: 'flex', width: '100%', justifyContent: 'flex-end' }}>
+            <button
+              type="button"
+              className="toolbar-action-btn"
+              onClick={() => p.navigate('freegroup')}
+            >
+              <Plus size={16} strokeWidth={2.4} />
+              <span>Freie Gruppe</span>
+            </button>
+          </div>
+        )}
+        {tab === 'archive' && (
+          <div className="archive-info-pill">
+            <ArchiveIcon size={14} />
+            <span>Sommersemester 2025 · Nur-Lese-Modus</span>
+          </div>
+        )}
+      </div>
+
+      <div className="tree">
+        {tab === 'ws26' && (
+          <>
+            {joined.map((m) => (
+              <TreeGroup
+                key={m.id}
+                id={m.id}
+                title={m.short}
+                items={channels.filter((c) => !c.archived && c.moduleId === m.id)}
+                addLabel="Untergruppe"
+                onAdd={() => p.setSubgroupModal(m.id)}
+              />
+            ))}
+            {joined.length === 0 && (
+              <div className="tree-empty-state">
+                <p>Du bist noch keinem Kurs im WS 26/27 beigetreten.</p>
+                <button
+                  type="button"
+                  className="btn-primary sm"
+                  onClick={() => p.navigate('catalog')}
+                >
+                  Zum Modulkatalog
+                </button>
+              </div>
+            )}
+          </>
+        )}
+
+        {tab === 'custom' && (
+          <>
+            {custom.length > 0 ? (
+              <TreeGroup
+                id="custom"
+                title="Eigene Gruppen & Projekte"
+                items={custom}
+                addLabel="Neue Gruppe"
+                onAdd={() => p.navigate('freegroup')}
+              />
+            ) : (
+              <div className="tree-empty-state">
+                <p>Noch keine eigenen Gruppen vorhanden.</p>
+                <button
+                  type="button"
+                  className="btn-primary sm"
+                  onClick={() => p.navigate('freegroup')}
+                >
+                  <Plus size={16} /> Gruppe erstellen
+                </button>
+              </div>
+            )}
+          </>
+        )}
+
+        {tab === 'archive' && (
+          <>
+            {archived.length > 0 ? (
+              <TreeGroup id="archive" title="Archiv SS25" items={archived} muted />
+            ) : (
+              <div className="tree-empty-state">
+                <p>Keine archivierten Kurse vorhanden.</p>
+              </div>
+            )}
+          </>
+        )}
       </div>
       <TabBar active="chats" />
     </>
@@ -212,14 +350,23 @@ export function Archive() {
 
 export function SubgroupModal() {
   const p = useApp();
-  const mod = p.modules.find((m) => m.id === p.subgroupModal);
+  const joinedMods = p.modules.filter((m) => m.joined);
+  const initialModId =
+    joinedMods.find((m) => m.id === p.subgroupModal)?.id ??
+    joinedMods.find((m) => m.id === p.activeChannel?.moduleId)?.id ??
+    joinedMods[0]?.id ??
+    '';
+
+  const [selectedModId, setSelectedModId] = useState<string>(initialModId);
   const [name, setName] = useState('');
   const [type, setType] = useState('Lerngruppe');
   const [busy, setBusy] = useState(false);
 
-  if (!mod) return null;
+  if (!p.subgroupModal) return null;
   const close = () => p.setSubgroupModal(null);
-  const previewName = buildSubgroupRoomName(mod, name.trim() || 'Name');
+  const currentMod = p.modules.find((m) => m.id === selectedModId) ?? joinedMods[0];
+  if (!currentMod) return null;
+  const previewName = buildSubgroupRoomName(currentMod, name.trim() || 'Name');
 
   return (
     <div className="modal-overlay" onClick={close}>
@@ -230,7 +377,7 @@ export function SubgroupModal() {
           e.preventDefault();
           if (!name.trim() || busy) return;
           setBusy(true);
-          const createdId = await p.createSubgroup(mod.id, name.trim(), type);
+          const createdId = await p.createSubgroup(currentMod.id, name.trim(), type);
           setBusy(false);
           if (createdId && p.screen !== 'chat') {
             p.navigate('chat');
@@ -239,7 +386,24 @@ export function SubgroupModal() {
       >
         <div className="modal-handle" />
         <div className="modal-title">Untergruppe erstellen</div>
-        <div className="modal-sub">in {mod.short} · WS26</div>
+        <div className="modal-sub">in {currentMod.short} · WS26</div>
+
+        <div className="field">
+          <label htmlFor="sg-mod">Zugehöriges Modul (Kurs) *</label>
+          <select
+            id="sg-mod"
+            value={selectedModId}
+            onChange={(e) => setSelectedModId(e.target.value)}
+            disabled={busy}
+          >
+            {joinedMods.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.short} — {m.full}
+              </option>
+            ))}
+          </select>
+        </div>
+
         <div className="field">
           <label htmlFor="sg-name">Name der Untergruppe *</label>
           <input
@@ -255,6 +419,7 @@ export function SubgroupModal() {
             Gespeichert als {previewName} ({previewName.length}/30 Zeichen)
           </span>
         </div>
+
         <div className="field">
           <label htmlFor="sg-type">Typ</label>
           <select id="sg-type" value={type} onChange={(e) => setType(e.target.value)} disabled={busy}>
@@ -263,12 +428,34 @@ export function SubgroupModal() {
             <option>Projekt</option>
           </select>
         </div>
+
         <button type="submit" className="btn-primary md" disabled={!name.trim() || busy}>
           {busy ? 'Erstelle…' : 'Untergruppe erstellen'}
         </button>
         <button type="button" className="btn-secondary" onClick={close} disabled={busy}>
           Abbrechen
         </button>
+
+        <div style={{ textAlign: 'center', marginTop: 12 }}>
+          <button
+            type="button"
+            onClick={() => {
+              close();
+              p.navigate('freegroup');
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'var(--navy-80)',
+              fontSize: 13,
+              fontWeight: 600,
+              textDecoration: 'underline',
+              cursor: 'pointer',
+            }}
+          >
+            Lieber eine freie Gruppe anlegen? Hier klicken
+          </button>
+        </div>
       </form>
     </div>
   );

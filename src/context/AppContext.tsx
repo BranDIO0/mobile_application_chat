@@ -106,10 +106,34 @@ function useAppState() {
     isMockModeEnabled() ? MOCK_INITIAL_NOTIFS : [],
   );
   const [settings, setSettings] = useState({ push: true, mentionsOnly: false, showArchived: true });
-  const [collapsed, setCollapsed] = useState<string[]>([]);
+  // AC 1: Modules are initially collapsed by default (only active module or none open)
+  const [collapsed, setCollapsed] = useState<string[]>(() =>
+    INITIAL_MODULES.filter((m) => m.id !== 'mathe1').map((m) => m.id),
+  );
+  const [accordionMode, setAccordionMode] = useState<boolean>(false);
 
-  const toggleCollapsed = (id: string) =>
-    setCollapsed((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id]));
+  const toggleCollapsed = (id: string, forceAccordion?: boolean) => {
+    setCollapsed((prev) => {
+      const isClosed = prev.includes(id);
+      const useAccordion = forceAccordion !== undefined ? forceAccordion : accordionMode;
+      if (isClosed) {
+        if (useAccordion) {
+          const allOtherModuleIds = modules.map((m) => m.id).filter((mId) => mId !== id);
+          return [...new Set([...allOtherModuleIds, 'custom', 'archive'])];
+        }
+        return prev.filter((x) => x !== id);
+      }
+      return [...prev, id];
+    });
+  };
+
+  const collapseAll = () => {
+    setCollapsed([...modules.map((m) => m.id), 'custom', 'archive']);
+  };
+
+  const expandAll = () => {
+    setCollapsed([]);
+  };
 
   const timers = useRef<number[]>([]);
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
@@ -484,6 +508,9 @@ function useAppState() {
   const openChannel = (chId: string, push = true) => {
     setActiveChannelId(chId);
     const c = channel(chId);
+    if (c?.moduleId) {
+      setCollapsed((prev) => prev.filter((id) => id !== c.moduleId));
+    }
     if (push) navigate(c?.archived ? 'archive' : 'chat');
   };
 
@@ -926,6 +953,10 @@ function useAppState() {
     setSettings,
     collapsed,
     toggleCollapsed,
+    collapseAll,
+    expandAll,
+    accordionMode,
+    setAccordionMode,
   };
 }
 
