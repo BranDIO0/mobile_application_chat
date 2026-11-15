@@ -714,9 +714,13 @@ function useAppState() {
     if (!m || !auth.token) return;
 
     setModules((ms) => ms.map((x) => (x.id === id ? { ...x, joined: true } : x)));
+    setCollapsed((prev) => prev.filter((x) => x !== id));
 
     const existingMain = channels.find(
-      (c) => !c.archived && c.moduleId === id && c.name === 'Hauptkanal',
+      (c) =>
+        !c.archived &&
+        c.moduleId === id &&
+        (c.subtype === 'main' || c.name === 'Hauptkanal' || c.rawName.includes(':MAIN')),
     );
     if (!existingMain) {
       const rawName = buildModuleMainRoomName(m);
@@ -733,6 +737,7 @@ function useAppState() {
             name: 'Hauptkanal',
             icon: '💬',
             moduleId: id,
+            subtype: 'main',
             members: m.participants + 1,
             visibility: 'public',
             messages: [],
@@ -743,9 +748,35 @@ function useAppState() {
       } catch (e) {
         toast(formatError(e));
       }
+    } else {
+      setActiveChannelId(existingMain.id);
     }
     markOb(1);
     toast(`${m.full} beigetreten`);
+  };
+
+  const openModuleMain = (moduleId: string) => {
+    setCollapsed((prev) => prev.filter((id) => id !== moduleId));
+    const mainCh = channels.find(
+      (c) =>
+        !c.archived &&
+        c.moduleId === moduleId &&
+        (c.subtype === 'main' ||
+          c.name.toLowerCase() === 'hauptkanal' ||
+          c.rawName.toLowerCase().includes(':main')),
+    );
+    if (mainCh) {
+      setActiveChannelId(mainCh.id);
+      navigate('chat');
+    } else {
+      const anyCh = channels.find((c) => !c.archived && c.moduleId === moduleId);
+      if (anyCh) {
+        setActiveChannelId(anyCh.id);
+        navigate('chat');
+      } else {
+        joinModule(moduleId);
+      }
+    }
   };
 
   const joinRoomById = async (targetChatId: number): Promise<boolean> => {
@@ -928,6 +959,7 @@ function useAppState() {
     createSubgroup,
     createCustomGroup,
     joinModule,
+    openModuleMain,
     joinRoomById,
 
     // Messages & Attachments

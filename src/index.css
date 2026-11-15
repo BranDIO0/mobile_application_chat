@@ -493,6 +493,40 @@ button:not(:disabled), [role='button'] { cursor: pointer; }
 .join-btn:hover { background: var(--navy-80); }
 .joined-badge { display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; color: var(--success); background: var(--success-bg); border-radius: 9999px; padding: 5px 10px; flex-shrink: 0; }
 
+.module-item.is-joined {
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.module-item.is-joined:hover {
+  background: #f1f5f9;
+}
+.module-item.is-joined:focus-visible {
+  outline: 2px solid var(--navy);
+  outline-offset: -2px;
+}
+
+.btn-to-chat {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--success);
+  background: var(--success-bg);
+  border: 1.5px solid rgba(5, 150, 105, 0.3);
+  border-radius: 9999px;
+  padding: 5px 10px;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.btn-to-chat:hover {
+  background: #d1fae5;
+  border-color: var(--success);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(5, 150, 105, 0.15);
+}
+
 /* Invitations */
 .invite-card { margin: 6px 18px 10px; background: var(--surface); border: 2px solid var(--line); border-radius: var(--r-lg); overflow: hidden; animation: msgIn 0.2s ease-out; }
 .invite-card-body { padding: 12px 14px; display: flex; gap: 12px; align-items: center; }

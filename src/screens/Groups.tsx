@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
   Check,
+  ChevronRight,
   Download,
   FileText,
   Image,
@@ -15,7 +16,7 @@ import { MainHeader, SubHeader, TabBar } from '../components/Layout';
 import { initials, useApp } from '../context/AppContext';
 
 export function Catalog() {
-  const { modules, joinModule, setModuleModalOpen, setSubgroupModal } = useApp();
+  const { modules, joinModule, openModuleMain, setModuleModalOpen, setSubgroupModal } = useApp();
   const [q, setQ] = useState('');
   const needle = q.trim().toLowerCase();
   const list = modules.filter(
@@ -53,7 +54,18 @@ export function Catalog() {
             <div key={cat}>
               <div className="module-category">{cat}</div>
               {items.map((m) => (
-                <div key={m.id} className="module-item">
+                <div
+                  key={m.id}
+                  className={`module-item${m.joined ? ' is-joined' : ''}`}
+                  onClick={() => {
+                    if (m.joined) {
+                      openModuleMain(m.id);
+                    }
+                  }}
+                  role={m.joined ? 'button' : undefined}
+                  tabIndex={m.joined ? 0 : undefined}
+                  title={m.joined ? 'Klicken, um den Hauptkanal im Chat zu öffnen' : undefined}
+                >
                   <div className="mod-info">
                     <div className="mod-name">{m.full}</div>
                     <div className="mod-sub">
@@ -61,10 +73,20 @@ export function Catalog() {
                     </div>
                   </div>
                   {m.joined ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <div className="joined-badge">
-                        <Check size={14} strokeWidth={2.6} /> Beigetreten
-                      </div>
+                    <div
+                      style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        type="button"
+                        className="btn-to-chat"
+                        onClick={() => openModuleMain(m.id)}
+                        title="Hauptkanal öffnen"
+                      >
+                        <Check size={14} strokeWidth={2.6} />
+                        <span>Zum Chat</span>
+                        <ChevronRight size={14} strokeWidth={2.4} />
+                      </button>
                       <button
                         type="button"
                         className="icon-btn"
@@ -76,7 +98,11 @@ export function Catalog() {
                       </button>
                     </div>
                   ) : (
-                    <button className="join-btn" onClick={() => joinModule(m.id)}>
+                    <button
+                      type="button"
+                      className="join-btn"
+                      onClick={() => joinModule(m.id)}
+                    >
                       Beitreten
                     </button>
                   )}
