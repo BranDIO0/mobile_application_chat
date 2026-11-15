@@ -18,6 +18,6 @@ const proxy = {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  server: { proxy },
-  preview: { proxy },
+  server: { host: true, proxy },
+  preview: { host: true, proxy },
 });
