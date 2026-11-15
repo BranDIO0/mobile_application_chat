@@ -35,6 +35,8 @@ export type Msg = {
   important?: boolean;
 };
 
+export type ChannelSubtype = 'main' | 'study' | 'exercise' | 'project' | 'custom';
+
 export type Channel = {
   id: string;
   chatid: number;
@@ -42,6 +44,7 @@ export type Channel = {
   name: string;
   icon: string;
   moduleId?: string;
+  subtype?: ChannelSubtype;
   members: number;
   archived?: boolean;
   visibility?: 'public' | 'private';

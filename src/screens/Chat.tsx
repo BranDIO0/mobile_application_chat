@@ -5,8 +5,10 @@ import {
   ChevronDown,
   ChevronRight,
   EllipsisVertical,
+  FileText,
+  FolderKanban,
+  Hash,
   LogOut,
-  MessageCircle,
   Plus,
   Trash2,
   UserPlus,
@@ -17,6 +19,72 @@ import type { Channel } from '../data/catalog';
 import { CATEGORIES, slugifyName } from '../data/catalog';
 import { useApp } from '../context/AppContext';
 import { buildModuleMainRoomName, buildSubgroupRoomName } from '../utils/roomParser';
+
+function renderChannelIcon(c: Channel) {
+  if (c.archived) {
+    return (
+      <span className="channel-icon-wrap channel-icon-archived">
+        <ArchiveIcon size={14} strokeWidth={2} />
+      </span>
+    );
+  }
+
+  const subtype =
+    c.subtype ??
+    (c.name.toLowerCase() === 'hauptkanal' || c.rawName.toLowerCase().includes(':main')
+      ? 'main'
+      : 'study');
+
+  switch (subtype) {
+    case 'main':
+      return (
+        <span className="channel-icon-wrap channel-icon-main" title="Hauptkanal">
+          <Hash size={16} strokeWidth={2.8} />
+        </span>
+      );
+    case 'study':
+      return (
+        <span className="channel-icon-wrap channel-icon-study" title="Lerngruppe">
+          <Users size={15} strokeWidth={2.2} />
+        </span>
+      );
+    case 'exercise':
+      return (
+        <span className="channel-icon-wrap channel-icon-exercise" title="Übungsblatt">
+          <FileText size={15} strokeWidth={2.2} />
+        </span>
+      );
+    case 'project':
+      return (
+        <span className="channel-icon-wrap channel-icon-project" title="Projekt">
+          <FolderKanban size={15} strokeWidth={2.2} />
+        </span>
+      );
+    case 'custom':
+    default:
+      return (
+        <span className="channel-icon-wrap channel-icon-custom" title="Gruppe">
+          <Users size={15} strokeWidth={2.2} />
+        </span>
+      );
+  }
+}
+
+const SUBTYPE_PRIORITY: Record<string, number> = {
+  study: 1,    // Lerngruppe
+  exercise: 2, // Übungsblatt
+  project: 3,  // Projekt
+  custom: 4,
+};
+
+function sortChannelsByType(channels: Channel[]): Channel[] {
+  return [...channels].sort((a, b) => {
+    const prioA = SUBTYPE_PRIORITY[a.subtype ?? 'study'] ?? 99;
+    const prioB = SUBTYPE_PRIORITY[b.subtype ?? 'study'] ?? 99;
+    if (prioA !== prioB) return prioA - prioB;
+    return a.name.localeCompare(b.name, 'de', { numeric: true });
+  });
+}
 
 function TreeGroup({
   id,
@@ -35,6 +103,19 @@ function TreeGroup({
 }) {
   const p = useApp();
   const closed = p.collapsed.includes(id);
+
+  // Separate main channel and sorted subchannels for modules
+  const mainChannel = items.find(
+    (c) =>
+      !c.archived &&
+      (c.subtype === 'main' ||
+        c.name.toLowerCase() === 'hauptkanal' ||
+        c.rawName.toLowerCase().includes(':main')),
+  );
+  const subChannels = mainChannel
+    ? sortChannelsByType(items.filter((c) => c.id !== mainChannel.id))
+    : sortChannelsByType(items);
+
   return (
     <div className="tree-group">
       <div className="tree-head-row">
@@ -68,20 +149,43 @@ function TreeGroup({
         )}
       </div>
       <div className={`tree-body${closed ? ' collapsed' : ''}`}>
-        {items.map((c) => (
-          <button
-            key={c.id}
-            className={`tree-item${c.id === p.activeChannelId && !c.archived ? ' active' : ''}${muted ? ' muted' : ''}`}
-            onClick={() => p.openChannel(c.id)}
-          >
-            {c.archived ? (
-              <ArchiveIcon size={19} strokeWidth={2} />
-            ) : (
-              <MessageCircle size={19} strokeWidth={2} />
+        {mainChannel ? (
+          <>
+            <button
+              key={mainChannel.id}
+              className={`tree-item tree-item-main${mainChannel.id === p.activeChannelId && !mainChannel.archived ? ' active' : ''}${muted ? ' muted' : ''}`}
+              onClick={() => p.openChannel(mainChannel.id)}
+            >
+              {renderChannelIcon(mainChannel)}
+              <span className="channel-name">{mainChannel.name}</span>
+            </button>
+            {subChannels.length > 0 && (
+              <div className="tree-sub-list">
+                {subChannels.map((c) => (
+                  <button
+                    key={c.id}
+                    className={`tree-item tree-item-sub${c.id === p.activeChannelId && !c.archived ? ' active' : ''}${muted ? ' muted' : ''}`}
+                    onClick={() => p.openChannel(c.id)}
+                  >
+                    {renderChannelIcon(c)}
+                    <span className="channel-name">{c.name}</span>
+                  </button>
+                ))}
+              </div>
             )}
-            <span>{c.name}</span>
-          </button>
-        ))}
+          </>
+        ) : (
+          subChannels.map((c) => (
+            <button
+              key={c.id}
+              className={`tree-item${c.id === p.activeChannelId && !c.archived ? ' active' : ''}${muted ? ' muted' : ''}`}
+              onClick={() => p.openChannel(c.id)}
+            >
+              {renderChannelIcon(c)}
+              <span className="channel-name">{c.name}</span>
+            </button>
+          ))
+        )}
         {!items.length && <div className="tree-item muted">Keine Kanäle</div>}
       </div>
     </div>

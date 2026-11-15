@@ -13,6 +13,7 @@ import {
   slugifyName,
   TAFEL,
   type Channel,
+  type ChannelSubtype,
   type FileAtt,
   type Invitation,
   type Module,
@@ -626,6 +627,8 @@ function useAppState() {
       const res = await chatApi.createChat(auth.token, rawName, true);
       const newChatId = Number(res.chatid);
       const newId = String(newChatId);
+      const subtype: ChannelSubtype =
+        type === 'Übungsblatt' ? 'exercise' : type === 'Projekt' ? 'project' : 'study';
       const optimistic: Channel = {
         id: newId,
         chatid: newChatId,
@@ -633,6 +636,7 @@ function useAppState() {
         name: name.trim(),
         icon: '💬',
         moduleId,
+        subtype,
         members: 1,
         visibility: 'public',
         messages: [],
