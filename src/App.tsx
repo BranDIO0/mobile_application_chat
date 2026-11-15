@@ -1,95 +1,57 @@
-import { useState } from 'react';
-import { useAuth } from './hooks/useAuth';
-import { Header, type Tab } from './components/Header';
-import { AuthPanel } from './components/auth/AuthPanel';
-import { ApiTestPage } from './pages/ApiTestPage';
-import { ChatPage } from './pages/ChatPage';
-import { ProfilePage } from './pages/ProfilePage';
+import { type ComponentType } from 'react';
+import { AppProvider, useApp } from './context/AppContext';
+import type { ScreenId } from './data/catalog';
+import { Notifications, Profile, Settings } from './screens/Account';
+import { Login, Onboarding, Register, Splash } from './screens/Auth';
+import { Archive, ChatView, Chats, ModuleModal, SubgroupModal } from './screens/Chat';
+import { Catalog, FileView, FreeGroup, Invitations, Invite } from './screens/Groups';
 
-export default function App() {
-  const {
-    userId,
-    setUserId,
-    token,
-    setToken,
-    validatingSession,
-    loggingOut,
-    sessionError,
-    logout,
-    deleteAccount,
-  } = useAuth();
-  const [tab, setTab] = useState<Tab>('chat');
-  const [deletedUser, setDeletedUser] = useState<string | null>(null);
+const SCREENS: Record<ScreenId, ComponentType> = {
+  splash: Splash,
+  login: Login,
+  register: Register,
+  onboarding: Onboarding,
+  chats: Chats,
+  chat: ChatView,
+  archive: Archive,
+  catalog: Catalog,
+  freegroup: FreeGroup,
+  invite: Invite,
+  invitations: Invitations,
+  file: FileView,
+  profile: Profile,
+  settings: Settings,
+  notifications: Notifications,
+};
 
-  const handleDeleteAccount = async () => {
-    const idToDelete = userId;
-    await deleteAccount();
-    setDeletedUser(idToDelete);
-  };
-
-  const handleToken = (newToken: string) => {
-    setDeletedUser(null);
-    setToken(newToken);
-  };
+function PhoneShell() {
+  const { screen, navKey, dir, subgroupModal, moduleModalOpen, toastMsg } = useApp();
+  const Screen = SCREENS[screen];
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <Header
-        tab={tab}
-        onTabChange={setTab}
-        userId={userId}
-        loggedIn={!!token}
-        validatingSession={validatingSession}
-        loggingOut={loggingOut}
-        onLogout={logout}
-      />
-
-      <main className="flex-1 p-4 sm:p-6">
-        {deletedUser && !token && (
-          <div className="mx-auto mb-4 max-w-md rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-center text-xs text-emerald-800">
-            Account <b className="font-mono">{deletedUser}</b> wurde dauerhaft gelöscht.
+    <main className="app-stage">
+      <div className="phone">
+        <div className="island" aria-hidden />
+        <div key={navKey} className={`screen enter-${dir}`}>
+          <Screen />
+        </div>
+        {subgroupModal && <SubgroupModal />}
+        {moduleModalOpen && <ModuleModal />}
+        {toastMsg && (
+          <div key={toastMsg.id} className="toast" role="status">
+            {toastMsg.text}
           </div>
         )}
+        <div className="home-indicator" aria-hidden />
+      </div>
+    </main>
+  );
+}
 
-        {tab === 'test' && (
-          <ApiTestPage
-            userId={userId}
-            setUserId={setUserId}
-            token={token}
-            setToken={handleToken}
-          />
-        )}
-
-        {tab === 'chat' &&
-          (token ? (
-            <ChatPage token={token} userId={userId} />
-          ) : (
-            <AuthPanel
-              userId={userId}
-              setUserId={setUserId}
-              onToken={handleToken}
-              sessionError={sessionError}
-              onOpenApiTest={() => setTab('test')}
-            />
-          ))}
-
-        {tab === 'profile' &&
-          (token ? (
-            <ProfilePage
-              token={token}
-              userId={userId}
-              onDeleteAccount={handleDeleteAccount}
-            />
-          ) : (
-            <AuthPanel
-              userId={userId}
-              setUserId={setUserId}
-              onToken={handleToken}
-              sessionError={sessionError}
-              onOpenApiTest={() => setTab('test')}
-            />
-          ))}
-      </main>
-    </div>
+export default function App() {
+  return (
+    <AppProvider>
+      <PhoneShell />
+    </AppProvider>
   );
 }

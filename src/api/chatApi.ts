@@ -1,8 +1,8 @@
-import { BASE_URL, request } from './client';
+import { getActiveBaseUrl, request } from './client';
 import { getMockFileUrl, getMockPhotoUrl, isMockModeEnabled } from './mockServer';
 import type { ApiResponse, ChatInvite, ChatMessage, ChatRoom, NewMessage, UserProfile } from '../types';
 
-/** One function per chat server command. See https://www2.hs-esslingen.de/~chkohl/chat/docs/ */
+/** One function per chat server command. See https://www2.hs-esslingen.de/~chkohl/chat/docs/ and https://api.chat.throin.de/ */
 export const chatApi = {
   // Account
   register: (userid: string, password: string, nickname: string, fullname: string) =>
@@ -36,12 +36,14 @@ export const chatApi = {
     if (isMockModeEnabled() || photoid.startsWith('photo_')) {
       return getMockPhotoUrl(photoid);
     }
-    return `${BASE_URL}/?request=getphoto&photoid=${encodeURIComponent(photoid)}${token ? `&token=${encodeURIComponent(token)}` : ''}`;
+    const baseUrl = getActiveBaseUrl();
+    return `${baseUrl}/?request=getphoto&photoid=${encodeURIComponent(photoid)}${token ? `&token=${encodeURIComponent(token)}` : ''}`;
   },
   fileUrl: (fileid: string, token?: string) => {
     if (isMockModeEnabled() || fileid.startsWith('file_')) {
       return getMockFileUrl(fileid);
     }
-    return `${BASE_URL}/?request=getfile&fileid=${encodeURIComponent(fileid)}${token ? `&token=${encodeURIComponent(token)}` : ''}`;
+    const baseUrl = getActiveBaseUrl();
+    return `${baseUrl}/?request=getfile&fileid=${encodeURIComponent(fileid)}${token ? `&token=${encodeURIComponent(token)}` : ''}`;
   },
 };
