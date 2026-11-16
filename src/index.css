@@ -134,18 +134,24 @@ button:not(:disabled), [role='button'] { cursor: pointer; }
 /* ── Footer (tab bar) — matches Figma footer component ── */
 .tab-bar { display: flex; background: var(--bg); flex-shrink: 0; box-shadow: 0 -1px 0 var(--line); padding-bottom: 14px; position: relative; }
 .tab {
-  flex: 1; height: 58px; display: flex; align-items: center; justify-content: center; position: relative;
-  border: none; background: none; color: var(--g600);
+  flex: 1; height: 58px; min-height: 48px; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative;
+  border: none; background: none; color: var(--g600); cursor: pointer; gap: 2px;
 }
 .tab::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 4px; background: transparent; transition: background 0.2s; }
 .tab.active { color: var(--g900); }
 .tab.active::before { background: var(--red); }
+.tab-label { font-size: 10.5px; font-weight: 600; line-height: 1.1; margin-top: 1px; color: var(--g600); }
+.tab.active .tab-label { color: var(--g900); font-weight: 700; }
+.tab-bar.with-labels { padding-bottom: 8px; }
+.tab-bar.with-labels .tab { height: 60px; padding-top: 4px; }
 .tab-badge {
-  position: absolute; top: 10px; left: calc(50% + 8px); min-width: 17px; height: 17px; padding: 0 5px; border-radius: 9px;
+  position: absolute; top: 8px; left: calc(50% + 8px); min-width: 17px; height: 17px; padding: 0 5px; border-radius: 9px;
   background: var(--red); color: #fff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;
   box-shadow: 0 0 0 2px var(--bg);
 }
-.tab-dot { position: absolute; top: 14px; left: calc(50% + 7px); width: 9px; height: 9px; border-radius: 50%; background: var(--red); box-shadow: 0 0 0 2px var(--bg); }
+.tab-dot { position: absolute; top: 12px; left: calc(50% + 7px); width: 9px; height: 9px; border-radius: 50%; background: var(--red); box-shadow: 0 0 0 2px var(--bg); }
+.tab-bar.with-labels .tab-badge { top: 4px; left: calc(50% + 9px); }
+.tab-bar.with-labels .tab-dot { top: 6px; left: calc(50% + 8px); }
 
 /* ── Navy channel tree (Chats) ── */
 .chat-filter-bar { background: var(--navy); padding: 10px 14px 6px; }
@@ -635,4 +641,208 @@ button:not(:disabled), [role='button'] { cursor: pointer; }
   .modal-sheet { padding-bottom: max(env(safe-area-inset-bottom), 20px); }
   /* 16px inputs keep iOS Safari from zooming in on focus */
   .phone input, .phone select, .phone textarea { font-size: 16px; }
+}
+
+/* ══════════════════════════════════════════════════════
+   Barrierefreiheit (Accessibility / WCAG Konformität)
+   ══════════════════════════════════════════════════════ */
+
+/* Font-Scale Selector in Settings */
+.font-scale-selector {
+  display: flex;
+  width: 100%;
+  background: var(--input);
+  border: 1.5px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 4px;
+  gap: 4px;
+}
+.scale-btn {
+  flex: 1;
+  padding: 8px 4px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--g600);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.scale-btn:hover {
+  color: var(--g900);
+}
+.scale-btn.active {
+  background: var(--navy);
+  color: #fff;
+  font-weight: 700;
+  box-shadow: var(--shadow-sm);
+}
+
+/* Dynamic Font Scale on Phone Container */
+.phone {
+  --font-scale: 1;
+}
+.phone[data-font-scale="115"] {
+  font-size: 16px;
+}
+.phone[data-font-scale="130"] {
+  font-size: 18px;
+}
+.phone[data-font-scale="115"] .tree-head-toggle,
+.phone[data-font-scale="115"] .main-header h1,
+.phone[data-font-scale="115"] .sub-header .title {
+  font-size: 1.12em;
+}
+.phone[data-font-scale="130"] .tree-head-toggle,
+.phone[data-font-scale="130"] .main-header h1,
+.phone[data-font-scale="130"] .sub-header .title {
+  font-size: 1.22em;
+}
+
+/* Touch Targets: minimum 44x44px (WCAG 2.5.5 / 2.5.8) */
+.icon-btn {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.tree-head-toggle {
+  min-height: 44px;
+}
+.tree-head-action {
+  position: relative;
+}
+.tree-head-action::after {
+  content: '';
+  position: absolute;
+  top: -8px;
+  bottom: -8px;
+  left: -8px;
+  right: -8px;
+}
+.tree-item {
+  min-height: 44px;
+}
+.tab {
+  min-height: 48px;
+}
+.toggle-pill {
+  min-width: 44px;
+  min-height: 28px;
+  cursor: pointer;
+}
+.btn-to-chat,
+.join-btn {
+  min-height: 38px;
+}
+
+/* High Contrast Mode (WCAG AAA) */
+.phone[data-high-contrast="true"] {
+  --navy: #001220;
+  --navy-row: #2d3e55;
+  --navy-line: #94a3b8;
+  --g600: #1e293b;
+  --g500: #334155;
+  --g400: #e2e8f0;
+  --g300: #f8fafc;
+  --line: #64748b;
+  --input-border: #475569;
+}
+.phone[data-high-contrast="true"] .tree-item {
+  color: #f8fafc;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+.phone[data-high-contrast="true"] .tree-item.muted {
+  color: #cbd5e1;
+}
+.phone[data-high-contrast="true"] .tree-sub-list {
+  border-left: 2.5px solid #cbd5e1;
+}
+.phone[data-high-contrast="true"] .tree-item-sub::before {
+  background: #cbd5e1;
+  height: 2px;
+}
+.phone[data-high-contrast="true"] .channel-icon-main {
+  background: #ffffff;
+  color: #001220;
+  box-shadow: 0 0 0 2px #fff;
+}
+.phone[data-high-contrast="true"] .channel-icon-study {
+  background: #059669;
+  color: #ffffff;
+  box-shadow: 0 0 0 1.5px #a7f3d0;
+}
+.phone[data-high-contrast="true"] .channel-icon-exercise {
+  background: #0284c7;
+  color: #ffffff;
+  box-shadow: 0 0 0 1.5px #bae6fd;
+}
+.phone[data-high-contrast="true"] .channel-icon-project {
+  background: #7c3aed;
+  color: #ffffff;
+  box-shadow: 0 0 0 1.5px #ddd6fe;
+}
+.phone[data-high-contrast="true"] .channel-icon-custom {
+  background: #4f46e5;
+  color: #ffffff;
+  box-shadow: 0 0 0 1.5px #c7d2fe;
+}
+.phone[data-high-contrast="true"] .channel-icon-archived {
+  background: #475569;
+  color: #f8fafc;
+  box-shadow: 0 0 0 1.5px #94a3b8;
+}
+.phone[data-high-contrast="true"] .tree-head-action {
+  border: 2px solid #ffffff;
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+}
+.phone[data-high-contrast="true"] .segmented-btn.active {
+  background: #e30039;
+  border: 2px solid #ffffff;
+  color: #ffffff;
+}
+.phone[data-high-contrast="true"] .toolbar-action-btn {
+  background: #001220;
+  border: 2px solid #ffffff;
+  color: #ffffff;
+}
+.phone[data-high-contrast="true"] .btn-to-chat {
+  background: #065f46;
+  color: #ffffff;
+  border: 2px solid #34d399;
+}
+.phone[data-high-contrast="true"] button:focus-visible,
+.phone[data-high-contrast="true"] input:focus-visible,
+.phone[data-high-contrast="true"] select:focus-visible {
+  outline: 3px solid #38bdf8 !important;
+  outline-offset: 2px !important;
+}
+
+/* Reduced Motion (AC 3) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.phone[data-reduced-motion="true"] *,
+.phone[data-reduced-motion="true"] *::before,
+.phone[data-reduced-motion="true"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
 }

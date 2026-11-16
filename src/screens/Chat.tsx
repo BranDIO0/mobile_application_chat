@@ -473,7 +473,13 @@ export function SubgroupModal() {
   const previewName = buildSubgroupRoomName(currentMod, name.trim() || 'Name');
 
   return (
-    <div className="modal-overlay" onClick={close}>
+    <div
+      className="modal-overlay"
+      onClick={close}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="sg-modal-title"
+    >
       <form
         className="modal-sheet"
         onClick={(e) => e.stopPropagation()}
@@ -488,8 +494,8 @@ export function SubgroupModal() {
           }
         }}
       >
-        <div className="modal-handle" />
-        <div className="modal-title">Untergruppe erstellen</div>
+        <div className="modal-handle" aria-hidden />
+        <h2 id="sg-modal-title" className="modal-title">Untergruppe erstellen</h2>
         <div className="modal-sub">in {currentMod.short} · WS26</div>
 
         <div className="field">
@@ -592,7 +598,13 @@ export function ModuleModal() {
   const previewServerName = buildModuleMainRoomName(previewMod);
 
   return (
-    <div className="modal-overlay" onClick={close}>
+    <div
+      className="modal-overlay"
+      onClick={close}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="mod-modal-title"
+    >
       <form
         className="modal-sheet"
         onClick={(e) => e.stopPropagation()}
@@ -613,8 +625,8 @@ export function ModuleModal() {
           }
         }}
       >
-        <div className="modal-handle" />
-        <div className="modal-title">Neues Modul (Kurs) anlegen</div>
+        <div className="modal-handle" aria-hidden />
+        <h2 id="mod-modal-title" className="modal-title">Neues Modul (Kurs) anlegen</h2>
         <div className="modal-sub">Erstellt das Modul + öffentlichen Hauptkanal auf dem Server</div>
         <div className="field">
           <label htmlFor="mod-short">Kurzname (für Seitenleiste, max. 14 Zeichen) *</label>

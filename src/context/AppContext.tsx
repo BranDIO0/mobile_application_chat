@@ -56,6 +56,25 @@ const MOCK_INITIAL_NOTIFS: Notif[] = [
   { id: 'n6', unread: false, time: 'vor 1 Monat', target: { type: 'archive' }, html: <>Kurs <strong>Mathe 1 (SS25)</strong> wurde archiviert. Nur-Lese-Modus aktiv.</> },
 ];
 
+export type FontSizeScale = '100' | '115' | '130';
+
+export interface AppSettings {
+  highContrast: boolean;
+  fontSizeScale: FontSizeScale;
+  showTabLabels: boolean;
+  reducedMotion: boolean;
+}
+
+const DEFAULT_SETTINGS: AppSettings = {
+  highContrast: false,
+  fontSizeScale: '100',
+  showTabLabels: true,
+  reducedMotion:
+    typeof window !== 'undefined'
+      ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      : false,
+};
+
 function useAppState() {
   const auth = useAuth();
   const [serverMode, setServerModeState] = useState<ServerMode>(() => getServerMode());
@@ -106,7 +125,23 @@ function useAppState() {
   const [notifs, setNotifs] = useState<Notif[]>(() =>
     isMockModeEnabled() ? MOCK_INITIAL_NOTIFS : [],
   );
-  const [settings, setSettings] = useState({ push: true, mentionsOnly: false, showArchived: true });
+  const [settings, setSettings] = useState<AppSettings>(() => {
+    try {
+      const saved = localStorage.getItem('hey_settings');
+      if (saved) return { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
+    } catch {
+      // fallback
+    }
+    return DEFAULT_SETTINGS;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('hey_settings', JSON.stringify(settings));
+    } catch {
+      // ignore
+    }
+  }, [settings]);
   // AC 1: Modules are initially collapsed by default (only active module or none open)
   const [collapsed, setCollapsed] = useState<string[]>(() =>
     INITIAL_MODULES.filter((m) => m.id !== 'mathe1').map((m) => m.id),

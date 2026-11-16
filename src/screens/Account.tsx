@@ -170,7 +170,6 @@ export function Settings() {
   const [deleting, setDeleting] = useState(false);
 
   const set = (k: keyof typeof s) => (v: boolean) => setSettings({ ...s, [k]: v });
-  const demo = (what: string) => () => p.toast(`${what} — nicht verfügbar`);
   const shortName = p.displayName
     .split(' ')
     .map((w, i) => (i === 0 ? w : `${w[0]}.`))
@@ -278,55 +277,64 @@ export function Settings() {
             {shortName} <Chev />
           </span>
         </div>
-        <div className="setting-row" {...clickable(demo('Passwort ändern'))}>
-          <span className="s-label">Passwort ändern</span>
-          <span className="s-val">
-            <Chev />
-          </span>
-        </div>
 
-        <div className="sec">Benachrichtigungen</div>
+        <div className="sec">Barrierefreiheit</div>
         <div className="setting-row">
-          <span className="s-label">Push-Benachrichtigungen</span>
-          <Toggle on={s.push} onChange={set('push')} label="Push-Benachrichtigungen" />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span className="s-label">Hoher Kontrast</span>
+            <span style={{ fontSize: 11, color: 'var(--g500)' }}>WCAG AAA (7:1) & stärkere Konturen</span>
+          </div>
+          <Toggle on={s.highContrast} onChange={set('highContrast')} label="Hoher Kontrast" />
+        </div>
+        <div className="setting-row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 8, padding: '12px 18px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+            <span className="s-label">Schriftgröße</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--g600)' }}>
+              {s.fontSizeScale === '130' ? 'Sehr groß (130 %)' : s.fontSizeScale === '115' ? 'Groß (115 %)' : 'Standard (100 %)'}
+            </span>
+          </div>
+          <div className="font-scale-selector" role="radiogroup" aria-label="Schriftgröße auswählen">
+            {(
+              [
+                { id: '100' as const, label: 'Standard (100 %)' },
+                { id: '115' as const, label: 'Groß (115 %)' },
+                { id: '130' as const, label: 'Sehr groß (130 %)' },
+              ]
+            ).map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                role="radio"
+                aria-checked={s.fontSizeScale === opt.id}
+                className={`scale-btn${s.fontSizeScale === opt.id ? ' active' : ''}`}
+                onClick={() => setSettings({ ...s, fontSizeScale: opt.id })}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="setting-row">
-          <span className="s-label">Nur bei Erwähnungen</span>
-          <Toggle on={s.mentionsOnly} onChange={set('mentionsOnly')} label="Nur bei Erwähnungen" />
-        </div>
-        <div className="setting-row" {...clickable(demo('Ton'))}>
-          <span className="s-label">Ton</span>
-          <span className="s-val">
-            Standard <Chev />
-          </span>
-        </div>
-
-        <div className="sec">App</div>
-        <div className="setting-row" {...clickable(demo('Semester wechseln'))}>
-          <span className="s-label">Aktuelles Semester</span>
-          <span className="s-val">
-            WS 26/27 <Chev />
-          </span>
-        </div>
-        <div className="setting-row">
-          <span className="s-label">Archivierte Kurse anzeigen</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span className="s-label">Text-Labels in Navigation</span>
+            <span style={{ fontSize: 11, color: 'var(--g500)' }}>Beschriftungen in unterer TabBar</span>
+          </div>
           <Toggle
-            on={s.showArchived}
-            onChange={set('showArchived')}
-            label="Archivierte Kurse anzeigen"
+            on={s.showTabLabels}
+            onChange={set('showTabLabels')}
+            label="Text-Labels in Navigation anzeigen"
           />
         </div>
-        <div className="setting-row" {...clickable(demo('Sprache'))}>
-          <span className="s-label">Sprache</span>
-          <span className="s-val">
-            Deutsch <Chev />
-          </span>
-        </div>
-
-        <div className="sec">Über</div>
         <div className="setting-row">
-          <span className="s-label">Version</span>
-          <span className="s-val">HEy! 1.0.0</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span className="s-label">Animationen reduzieren</span>
+            <span style={{ fontSize: 11, color: 'var(--g500)' }}>Reduziert Übergänge & Bildschirmeffekte</span>
+          </div>
+          <Toggle
+            on={s.reducedMotion}
+            onChange={set('reducedMotion')}
+            label="Animationen reduzieren"
+          />
         </div>
 
         <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -336,6 +344,9 @@ export function Settings() {
           <button className="btn-danger" onClick={handleDeleteAccount} disabled={deleting}>
             {deleting ? 'Lösche Konto…' : 'Konto löschen'}
           </button>
+        </div>
+        <div style={{ textAlign: 'center', fontSize: 11, color: 'var(--g500)', padding: '0 0 16px' }}>
+          HEy! v1.0.0
         </div>
       </div>
     </>
