@@ -17,28 +17,9 @@ Dieses Dokument fasst zusammen, wie die Anforderungen aus der Projektdokumentati
 
 ## 2. Raum- & Gruppenmanagement
 
-*   **Intelligente Raumbenennung & Raumtypen:** 
+*   **Intelligente Raumbenennung & Modulkatalog:** 
     *   **Status:** ✅ Möglich
-    *   **Umsetzung:** Beim Anlegen eines Raumes über `GET /createchat` generiert das Frontend den Namen nach einem festen Schema, das den Raumtyp eindeutig kodiert. Über `GET /getchats` werden alle Räume geladen. Das Frontend parst die Namen per Regular Expression und baut daraus die visuelle Baumstruktur:
-
-        ```
-        const regex = /^MOD::(?<modul>[^:]+)(?:::SUB::(?<subgroup>.+))?$/;
-        ```
-
-        Es werden drei Raumtypen unterschieden:
-
-        | Raumtyp | Generierter Raumname |
-        |---|---|
-        | Hauptmodul | `WS26::MOD::Mathe_1::MAIN` |
-        | Subgruppe | `WS26::MOD::Mathe_1::SUB::Lerngruppe_A` |
-        | Freie Gruppe | `CUSTOM::Projekt_Webtech` |
-
-        Die Räume werden im App-State nach Modulnamen gruppiert und als Baumstruktur in der Navigation dargestellt.
-
-*   **Modulkatalog & Kursbeitritt (1-Click-Join):**
-    *   **Status:** ⚠️ Lücke
-    *   **Problem:** `GET /getchats` liefert nur Räume zurück, in denen der User bereits Mitglied ist. Eine globale Kurssuche oder Moodle-Synchronisation ist über die API nicht möglich.
-    *   **Workaround:** Das Frontend enthält eine statische JSON-Datei mit allen Pflichtfächern des aktuellen Semesters. Da die Hauptmodule immer nach dem festen Schema `WS26::MOD::<Modulkürzel>::MAIN` benannt sind, kann das Frontend den genauen Raumnamen deterministisch berechnen. Ein Klpick auf „Mathe 1 beitreten" ruft direkt `GET /joinchat` mit dem berechneten Namen auf — ohne manuelle Eingabe von Raum-IDs oder Einladungscodes.
+    *   **Umsetzung:** Beim Anlegen eines Raumes über `GET /createchat` generiert das Frontend den Namen nach unserem Schema (z. B. `WS26::MOD::Mathe_1::SUB::Lerngruppe_A`). Über `GET /getchats` werden alle öffentlichen Räume geladen. Das Frontend parst die Namen und baut daraus die visuelle Baumstruktur und den Modulkatalog.
 *   **Berechtigungen für Modulerstellung:** 
     *   **Status:** ⚠️ Lücke
     *   **Problem:** Die API erlaubt es jedem User, öffentliche Chats (`ispublic=true`) zu erstellen.
