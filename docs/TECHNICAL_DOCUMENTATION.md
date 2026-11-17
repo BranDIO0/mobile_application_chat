@@ -3,10 +3,11 @@
 ## 1. Purpose
 
 Small React web app.
-It talks to the HSE chat server and covers two use cases:
+It talks to the HSE chat server and covers three tabs:
 
 1. **API Test** – the four exercise steps: register, note token, validate token, interpret error codes.
 2. **Chat** – a minimal chat client (rooms, messages, attachments, user list).
+3. **Profile** – shows the logged-in user's profile details and allows self-service account deletion (`deregister`).
 
 ## 2. Architecture
 
@@ -22,7 +23,7 @@ flowchart LR
 
 | Layer | Folder | Responsibility |
 |-------|--------|----------------|
-| Pages | `src/pages/` | Compose components for one tab (`ApiTestPage`, `ChatPage`) |
+| Pages | `src/pages/` | Compose components for one tab (`ApiTestPage`, `ChatPage`, `ProfilePage`) |
 | Components | `src/components/` | Rendering only; small, one job each |
 | Hooks | `src/hooks/` | State & side effects (auth, polling) |
 | API | `src/api/` | HTTP communication with the chat server |
@@ -39,7 +40,7 @@ src/
 │   ├── client.ts            # generic request(), ApiError
 │   └── chatApi.ts           # one function per server command
 ├── hooks/
-│   ├── useAuth.ts           # userId + token (localStorage), logout
+│   ├── useAuth.ts           # userId + token (localStorage), logout, deleteAccount
 │   └── useChat.ts           # rooms, messages, polling, send, createRoom
 ├── components/
 │   ├── Header.tsx           # title, tabs, logout
@@ -48,7 +49,8 @@ src/
 │   └── chat/                # RoomList, MessageList, MessageItem, MessageComposer
 ├── pages/
 │   ├── ApiTestPage.tsx
-│   └── ChatPage.tsx
+│   ├── ChatPage.tsx
+│   └── ProfilePage.tsx
 ├── utils/fileToBase64.ts
 ├── types.ts
 ├── App.tsx                  # useAuth + tab switch

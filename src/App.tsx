@@ -1,27 +1,57 @@
-import { useState } from 'react';
-import { useAuth } from './hooks/useAuth';
-import { Header, type Tab } from './components/Header';
-import { ApiTestPage } from './pages/ApiTestPage';
-import { ChatPage } from './pages/ChatPage';
+import { type ComponentType } from 'react';
+import { AppProvider, useApp } from './context/AppContext';
+import type { ScreenId } from './data/catalog';
+import { Notifications, Profile, Settings } from './screens/Account';
+import { Login, Onboarding, Register, Splash } from './screens/Auth';
+import { Archive, ChatView, Chats, ModuleModal, SubgroupModal } from './screens/Chat';
+import { Catalog, FileView, FreeGroup, Invitations, Invite } from './screens/Groups';
 
-export default function App() {
-  const { userId, setUserId, token, setToken, logout } = useAuth();
-  const [tab, setTab] = useState<Tab>('test');
+const SCREENS: Record<ScreenId, ComponentType> = {
+  splash: Splash,
+  login: Login,
+  register: Register,
+  onboarding: Onboarding,
+  chats: Chats,
+  chat: ChatView,
+  archive: Archive,
+  catalog: Catalog,
+  freegroup: FreeGroup,
+  invite: Invite,
+  invitations: Invitations,
+  file: FileView,
+  profile: Profile,
+  settings: Settings,
+  notifications: Notifications,
+};
+
+function PhoneShell() {
+  const { screen, navKey, dir, subgroupModal, moduleModalOpen, toastMsg } = useApp();
+  const Screen = SCREENS[screen];
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <Header tab={tab} onTabChange={setTab} userId={userId} loggedIn={!!token} onLogout={logout} />
+    <main className="app-stage">
+      <div className="phone">
+        <div className="island" aria-hidden />
+        <div key={navKey} className={`screen enter-${dir}`}>
+          <Screen />
+        </div>
+        {subgroupModal && <SubgroupModal />}
+        {moduleModalOpen && <ModuleModal />}
+        {toastMsg && (
+          <div key={toastMsg.id} className="toast" role="status">
+            {toastMsg.text}
+          </div>
+        )}
+        <div className="home-indicator" aria-hidden />
+      </div>
+    </main>
+  );
+}
 
-      <main className="flex-1 p-6">
-        {tab === 'test' && <ApiTestPage userId={userId} setUserId={setUserId} token={token} setToken={setToken} />}
-
-        {tab === 'chat' &&
-          (token ? (
-            <ChatPage token={token} userId={userId} />
-          ) : (
-            <p className="card mx-auto max-w-md text-center text-sm">Please register or log in on the API Test tab first.</p>
-          ))}
-      </main>
-    </div>
+export default function App() {
+  return (
+    <AppProvider>
+      <PhoneShell />
+    </AppProvider>
   );
 }

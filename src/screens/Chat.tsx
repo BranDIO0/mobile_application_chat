@@ -1,0 +1,403 @@
+import { useState, type ReactNode } from 'react';
+import {
+  Archive as ArchiveIcon,
+  BellOff,
+  ChevronDown,
+  ChevronRight,
+  EllipsisVertical,
+  LogOut,
+  MessageCircle,
+  Plus,
+  Trash2,
+  UserPlus,
+  Users,
+} from 'lucide-react';
+import { ChatArea, InputBar, MainHeader, SubHeader, TabBar } from '../components/Layout';
+import type { Channel } from '../data/catalog';
+import { CATEGORIES, slugifyName } from '../data/catalog';
+import { useApp } from '../context/AppContext';
+import { buildModuleMainRoomName, buildSubgroupRoomName } from '../utils/roomParser';
+
+function TreeGroup({
+  id,
+  title,
+  items,
+  addLabel,
+  onAdd,
+  muted,
+}: {
+  id: string;
+  title: string;
+  items: Channel[];
+  addLabel?: string;
+  onAdd?: () => void;
+  muted?: boolean;
+}) {
+  const p = useApp();
+  const closed = p.collapsed.includes(id);
+  return (
+    <div className="tree-group">
+      <button className="tree-head" onClick={() => p.toggleCollapsed(id)} aria-expanded={!closed}>
+        {closed ? (
+          <ChevronRight size={22} strokeWidth={2.6} />
+        ) : (
+          <ChevronDown size={22} strokeWidth={2.6} />
+        )}
+        {title}
+        {closed && items.length > 0 && <span className="count">{items.length}</span>}
+      </button>
+      <div className={`tree-body${closed ? ' collapsed' : ''}`}>
+        {items.map((c) => (
+          <button
+            key={c.id}
+            className={`tree-item${c.id === p.activeChannelId && !c.archived ? ' active' : ''}${muted ? ' muted' : ''}`}
+            onClick={() => p.openChannel(c.id)}
+          >
+            {c.archived ? (
+              <ArchiveIcon size={19} strokeWidth={2} />
+            ) : (
+              <MessageCircle size={19} strokeWidth={2} />
+            )}
+            <span>{c.name}</span>
+          </button>
+        ))}
+        {!items.length && !onAdd && <div className="tree-item muted">Keine Kanäle</div>}
+      </div>
+      {onAdd && (
+        <button className="tree-add" onClick={onAdd}>
+          <Plus size={20} strokeWidth={1.8} />
+          {addLabel}
+        </button>
+      )}
+    </div>
+  );
+}
+
+export function Chats() {
+  const p = useApp();
+  const { modules, channels, settings } = p;
+  const joined = modules.filter((m) => m.joined);
+  const custom = channels.filter((c) => !c.moduleId && !c.archived);
+  const archived = channels.filter((c) => c.archived);
+
+  return (
+    <>
+      <MainHeader title="Chats" />
+      <div className="tree">
+        {joined.map((m) => (
+          <TreeGroup
+            key={m.id}
+            id={m.id}
+            title={m.short}
+            items={channels.filter((c) => !c.archived && c.moduleId === m.id)}
+            addLabel="Untergruppe"
+            onAdd={() => p.setSubgroupModal(m.id)}
+          />
+        ))}
+        <TreeGroup
+          id="custom"
+          title="Eigene Gruppen"
+          items={custom}
+          addLabel="Neue Gruppe"
+          onAdd={() => p.navigate('freegroup')}
+        />
+        {settings.showArchived && archived.length > 0 && (
+          <TreeGroup id="archive" title="Archiv SS25" items={archived} muted />
+        )}
+        <div style={{ padding: '10px 18px 4px' }}>
+          <button
+            type="button"
+            onClick={() => p.setModuleModalOpen(true)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              width: '100%',
+              padding: '10px 14px',
+              borderRadius: 'var(--r-md)',
+              border: '1.5px dashed rgba(255, 255, 255, 0.35)',
+              background: 'rgba(255, 255, 255, 0.06)',
+              color: '#fff',
+              fontSize: 14,
+              fontWeight: 600,
+            }}
+          >
+            <Plus size={18} /> Neues Modul (Kurs) anlegen
+          </button>
+        </div>
+      </div>
+      <TabBar active="chats" />
+    </>
+  );
+}
+
+export function ChatView() {
+  const p = useApp();
+  const ch = p.activeChannel;
+  const mod = p.moduleOf(ch);
+  const [menu, setMenu] = useState(false);
+
+  const item = (icon: ReactNode, label: string, fn: () => void) => (
+    <button
+      role="menuitem"
+      onClick={() => {
+        setMenu(false);
+        fn();
+      }}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+
+  return (
+    <>
+      <SubHeader
+        title={ch.name}
+        sub={`${mod ? `${mod.short} · WS26` : 'Eigene Gruppe'} · #${ch.chatid} · ${ch.members} Teiln.`}
+      >
+        <button className="icon-btn" aria-label="Mitglieder" onClick={() => p.navigate('invite')}>
+          <Users size={22} />
+        </button>
+        <button className="icon-btn" aria-label="Mehr" onClick={() => setMenu(true)}>
+          <EllipsisVertical size={22} />
+        </button>
+      </SubHeader>
+      <ChatArea channel={ch} />
+      <InputBar channel={ch} />
+      {menu && (
+        <>
+          <div className="menu-backdrop" onClick={() => setMenu(false)} />
+          <div className="menu" role="menu">
+            {item(<UserPlus size={18} />, 'Mitglieder einladen', () => p.navigate('invite'))}
+            {mod &&
+              item(<Plus size={18} />, 'Untergruppe erstellen', () => p.setSubgroupModal(mod.id))}
+            {item(<BellOff size={18} />, 'Stummschalten', () =>
+              p.toast(`${ch.name} stummgeschaltet`),
+            )}
+            {ch.chatid !== 0 &&
+              item(<LogOut size={18} />, 'Gruppe verlassen', () => p.leaveChannel(ch.id))}
+            {ch.chatid !== 0 &&
+              item(<Trash2 size={18} />, 'Raum löschen', () => p.deleteChannel(ch.id))}
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
+export function Archive() {
+  const p = useApp();
+  const ch =
+    p.activeChannel.archived
+      ? p.activeChannel
+      : (p.channels.find((c) => c.archived) ?? p.activeChannel);
+
+  return (
+    <>
+      <SubHeader title={ch.name} sub="SS25 · Archiviert" />
+      <div className="archive-banner">
+        <ArchiveIcon size={18} style={{ flexShrink: 0, marginTop: 1 }} />
+        <div>
+          <strong>Archivierter Kurs — SS25</strong>
+          Nur-Lese-Modus. Nachrichten und Dateien sind weiterhin abrufbar.
+        </div>
+      </div>
+      <ChatArea channel={ch} dateLabel="14. Juli 2025" />
+      <InputBar channel={ch} />
+    </>
+  );
+}
+
+export function SubgroupModal() {
+  const p = useApp();
+  const mod = p.modules.find((m) => m.id === p.subgroupModal);
+  const [name, setName] = useState('');
+  const [type, setType] = useState('Lerngruppe');
+  const [busy, setBusy] = useState(false);
+
+  if (!mod) return null;
+  const close = () => p.setSubgroupModal(null);
+  const previewName = buildSubgroupRoomName(mod, name.trim() || 'Name');
+
+  return (
+    <div className="modal-overlay" onClick={close}>
+      <form
+        className="modal-sheet"
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!name.trim() || busy) return;
+          setBusy(true);
+          const createdId = await p.createSubgroup(mod.id, name.trim(), type);
+          setBusy(false);
+          if (createdId && p.screen !== 'chat') {
+            p.navigate('chat');
+          }
+        }}
+      >
+        <div className="modal-handle" />
+        <div className="modal-title">Untergruppe erstellen</div>
+        <div className="modal-sub">in {mod.short} · WS26</div>
+        <div className="field">
+          <label htmlFor="sg-name">Name der Untergruppe *</label>
+          <input
+            id="sg-name"
+            type="text"
+            placeholder="z. B. Lerngruppe B"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoFocus
+            disabled={busy}
+          />
+          <span className="hint">
+            Gespeichert als {previewName} ({previewName.length}/30 Zeichen)
+          </span>
+        </div>
+        <div className="field">
+          <label htmlFor="sg-type">Typ</label>
+          <select id="sg-type" value={type} onChange={(e) => setType(e.target.value)} disabled={busy}>
+            <option>Lerngruppe</option>
+            <option>Übungsblatt</option>
+            <option>Projekt</option>
+          </select>
+        </div>
+        <button type="submit" className="btn-primary md" disabled={!name.trim() || busy}>
+          {busy ? 'Erstelle…' : 'Untergruppe erstellen'}
+        </button>
+        <button type="button" className="btn-secondary" onClick={close} disabled={busy}>
+          Abbrechen
+        </button>
+      </form>
+    </div>
+  );
+}
+
+export function ModuleModal() {
+  const p = useApp();
+  const [shortName, setShortName] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [code, setCode] = useState('');
+  const [prof, setProf] = useState('');
+  const [category, setCategory] = useState(CATEGORIES[0] ?? 'Pflicht — 1. Semester');
+  const [busy, setBusy] = useState(false);
+
+  if (!p.moduleModalOpen) return null;
+  const close = () => p.setModuleModalOpen(false);
+
+  const previewMod = {
+    id: 'preview',
+    slug: slugifyName(shortName.trim() || 'Modul'),
+    abbr: 'M',
+    short: shortName.trim() || 'Modul',
+    full: fullName.trim() || 'Modul',
+    code: code || 'INFB',
+    prof: prof || 'Prof.',
+    participants: 1,
+    category,
+    joined: true,
+  };
+  const previewServerName = buildModuleMainRoomName(previewMod);
+
+  return (
+    <div className="modal-overlay" onClick={close}>
+      <form
+        className="modal-sheet"
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!shortName.trim() || busy) return;
+          setBusy(true);
+          const createdId = await p.createModule(
+            shortName.trim(),
+            fullName.trim() || shortName.trim(),
+            code.trim(),
+            prof.trim(),
+            category,
+          );
+          setBusy(false);
+          if (createdId && p.screen !== 'chat') {
+            p.navigate('chat');
+          }
+        }}
+      >
+        <div className="modal-handle" />
+        <div className="modal-title">Neues Modul (Kurs) anlegen</div>
+        <div className="modal-sub">Erstellt das Modul + öffentlichen Hauptkanal auf dem Server</div>
+        <div className="field">
+          <label htmlFor="mod-short">Kurzname (für Seitenleiste, max. 14 Zeichen) *</label>
+          <input
+            id="mod-short"
+            type="text"
+            maxLength={14}
+            placeholder="z. B. Mobile UI"
+            value={shortName}
+            onChange={(e) => setShortName(e.target.value)}
+            autoFocus
+            disabled={busy}
+          />
+          <span className="hint">
+            Server-Raumname: {previewServerName} ({previewServerName.length}/30 Zeichen)
+          </span>
+        </div>
+        <div className="field">
+          <label htmlFor="mod-full">Vollständiger Modulname</label>
+          <input
+            id="mod-full"
+            type="text"
+            placeholder="z. B. Mobile User Interfaces"
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            disabled={busy}
+          />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <div className="field">
+            <label htmlFor="mod-code">Modul-Code</label>
+            <input
+              id="mod-code"
+              type="text"
+              placeholder="z. B. INFB501"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              disabled={busy}
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="mod-prof">Dozent/in</label>
+            <input
+              id="mod-prof"
+              type="text"
+              placeholder="z. B. Prof. Kohl"
+              value={prof}
+              onChange={(e) => setProf(e.target.value)}
+              disabled={busy}
+            />
+          </div>
+        </div>
+        <div className="field">
+          <label htmlFor="mod-cat">Kategorie</label>
+          <select
+            id="mod-cat"
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            disabled={busy}
+          >
+            {CATEGORIES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </div>
+        <button type="submit" className="btn-primary md" disabled={!shortName.trim() || busy}>
+          {busy ? 'Erstelle Modul…' : 'Modul & Hauptkanal erstellen'}
+        </button>
+        <button type="button" className="btn-secondary" onClick={close} disabled={busy}>
+          Abbrechen
+        </button>
+      </form>
+    </div>
+  );
+}

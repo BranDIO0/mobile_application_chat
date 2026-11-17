@@ -1,0 +1,10 @@
+{
+  "description": "Explore an interactive click-through prototype to preview screens, test navigation, and experience a product concept before development.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
