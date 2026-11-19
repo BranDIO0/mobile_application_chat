@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import {
   Check,
+  ChevronRight,
   Download,
   FileText,
   Image,
+  Mail,
   MessageCircle,
   Plus,
   Search,
@@ -15,17 +17,19 @@ import { MainHeader, SubHeader, TabBar } from '../components/Layout';
 import { initials, useApp } from '../context/AppContext';
 
 export function Catalog() {
-  const { modules, joinModule, setModuleModalOpen, setSubgroupModal } = useApp();
-  const [q, setQ] = useState('');
-  const needle = q.trim().toLowerCase();
+  const { modules, moduleMainChannel, joinModule, openModuleMain, setModuleModalOpen } = useApp()
+  const [joining, setJoining] = useState(false)
+  const [q, setQ] = useState("")
+  const needle = q.trim().toLowerCase()
   const list = modules.filter(
-    (m) => !needle || `${m.full} ${m.code} ${m.prof}`.toLowerCase().includes(needle),
-  );
+    (m) =>
+      !needle || `${m.full} ${m.code} ${m.prof}`.toLowerCase().includes(needle),
+  )
 
   return (
     <>
       <MainHeader title="Modulkatalog" />
-      <div className="search-bar" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div className="search-bar">
         <div className="search-wrap">
           <Search size={18} />
           <input
@@ -36,60 +40,78 @@ export function Catalog() {
             aria-label="Fach suchen"
           />
         </div>
-        <button
-          type="button"
-          className="btn-primary md"
-          style={{ height: 40, fontSize: 14 }}
-          onClick={() => setModuleModalOpen(true)}
-        >
-          <Plus size={18} /> Neues Modul (Kurs) erstellen
-        </button>
       </div>
       <div className="scrollable">
         {CATEGORIES.map((cat) => {
-          const items = list.filter((m) => m.category === cat);
-          if (!items.length) return null;
+          const items = list.filter((m) => m.category === cat)
+          if (!items.length) return null
           return (
             <div key={cat}>
               <div className="module-category">{cat}</div>
-              {items.map((m) => (
-                <div key={m.id} className="module-item">
-                  <div className="mod-info">
-                    <div className="mod-name">{m.full}</div>
-                    <div className="mod-sub">
-                      {m.code} · {m.prof} · {m.participants} Teiln.
-                    </div>
-                  </div>
-                  {m.joined ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <div className="joined-badge">
-                        <Check size={14} strokeWidth={2.6} /> Beigetreten
+              {items.map((m) =>
+                moduleMainChannel(m.id) ? (
+                  <button
+                    key={m.id}
+                    type="button"
+                    className="module-item module-item-link"
+                    onClick={() => openModuleMain(m.id)}
+                    aria-label={`${m.full}: Hauptkanal öffnen`}
+                  >
+                    <div className="mod-info">
+                      <div className="mod-name">{m.full}</div>
+                      <div className="mod-sub">
+                        {m.code} · {m.prof} · {m.participants} Teiln.
                       </div>
-                      <button
-                        type="button"
-                        className="icon-btn"
-                        title="Untergruppe erstellen"
-                        onClick={() => setSubgroupModal(m.id)}
-                        style={{ background: 'var(--input)', width: 30, height: 30, borderRadius: 999 }}
-                      >
-                        <Plus size={16} />
-                      </button>
                     </div>
-                  ) : (
-                    <button className="join-btn" onClick={() => joinModule(m.id)}>
+                    <span className="joined-badge">
+                      <Check size={14} strokeWidth={2.6} /> Beigetreten
+                      <ChevronRight
+                        className="open-chevron"
+                        size={14}
+                        strokeWidth={2.4}
+                        aria-hidden
+                      />
+                    </span>
+                  </button>
+                ) : (
+                  <div key={m.id} className="module-item">
+                    <div className="mod-info">
+                      <div className="mod-name">{m.full}</div>
+                      <div className="mod-sub">
+                        {m.code} · {m.prof} · {m.participants} Teiln.
+                      </div>
+                    </div>
+                    <button
+                      className="join-btn"
+                      disabled={joining}
+                      onClick={async () => {
+                        setJoining(true)
+                        await joinModule(m.id)
+                        setJoining(false)
+                      }}
+                    >
                       Beitreten
                     </button>
-                  )}
-                </div>
-              ))}
+                  </div>
+                ),
+              )}
             </div>
-          );
+          )
         })}
-        {!list.length && <div className="empty-state">Kein Fach gefunden für „{q}“.</div>}
+        {!list.length && (
+          <div className="empty-state">Kein Fach gefunden für „{q}“.</div>
+        )}
+        {!needle && (
+          <div className="catalog-actions">
+            <button className="btn-secondary" onClick={() => setModuleModalOpen(true)}>
+              <Plus size={18} /> Neues Modul erstellen
+            </button>
+          </div>
+        )}
       </div>
       <TabBar active="catalog" />
     </>
-  );
+  )
 }
 
 export function FreeGroup() {
@@ -207,6 +229,7 @@ export function Invite() {
   const p = useApp();
   const ch = p.activeChannel;
   const st = p.inviteState(ch.id);
+  const openInvitations = p.invitations.filter((invite) => invite.status === 'open').length;
   const [user, setUser] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -239,6 +262,21 @@ export function Invite() {
   return (
     <>
       <SubHeader title="Einladen" sub={`${ch.name} (#${ch.chatid})`} />
+      <button
+        type="button"
+        className="open-invitations-link"
+        onClick={() => p.navigate("invitations")}
+        aria-label={`Offene Einladungen ansehen, ${openInvitations}`}
+      >
+        <span className="open-invitations-icon" aria-hidden>
+          <Mail size={19} strokeWidth={2} />
+        </span>
+        <span>Offene Einladungen ansehen</span>
+        <span className="open-invitations-count" aria-hidden>
+          {openInvitations}
+        </span>
+        <ChevronRight size={19} strokeWidth={2.2} aria-hidden />
+      </button>
       <form
         className="form-body"
         style={{ gap: 12 }}
@@ -397,11 +435,13 @@ export function Invitations() {
               <input
                 type="number"
                 min={0}
-                placeholder="Raum-ID (z. B. 0 oder 12)"
+                aria-label="Raum-ID"
+                placeholder="Raum-ID (z. B. 12)"
                 value={joinId}
                 onChange={(e) => setJoinId(e.target.value)}
                 style={{
                   flex: 1,
+                  minWidth: 0,
                   background: 'var(--input)',
                   border: '1.5px solid var(--input-border)',
                   borderRadius: 10,

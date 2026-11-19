@@ -169,7 +169,8 @@ export function Settings() {
   const { settings: s, setSettings, serverMode, setServerMode } = p;
   const [deleting, setDeleting] = useState(false);
 
-  const set = (k: keyof typeof s) => (v: boolean) => setSettings({ ...s, [k]: v });
+  const set = (k: Exclude<keyof typeof s, 'fontScale'>) => (v: boolean) =>
+    setSettings((current) => ({ ...current, [k]: v }));
   const demo = (what: string) => () => p.toast(`${what} — nicht verfügbar`);
   const shortName = p.displayName
     .split(' ')
@@ -216,6 +217,7 @@ export function Settings() {
         <div className="sec">Datenquelle & Server</div>
         <div style={{ padding: '10px 18px', background: '#fff', borderBottom: '1px solid var(--line)' }}>
           <div
+            className="server-mode-selector"
             style={{
               display: 'grid',
               gridTemplateColumns: '1fr 1fr 1fr',
@@ -299,6 +301,53 @@ export function Settings() {
           <span className="s-val">
             Standard <Chev />
           </span>
+        </div>
+
+        <div className="sec">Barrierefreiheit</div>
+        <div className="setting-row setting-row-detailed">
+          <span className="s-copy">
+            <span className="s-label">Hoher Kontrast</span>
+            <span className="s-description">Verstärkt Text-, Badge- und Flächenkontraste</span>
+          </span>
+          <Toggle
+            on={s.highContrast}
+            onChange={set('highContrast')}
+            label="Hohen Kontrast verwenden"
+          />
+        </div>
+        <fieldset className="font-scale-setting">
+          <legend>Schriftgröße</legend>
+          <div className="font-scale-options">
+            {([
+              ['standard', 'Standard', '100 %'],
+              ['large', 'Groß', '115 %'],
+              ['xlarge', 'Sehr groß', '130 %'],
+            ] as const).map(([value, label, percent]) => (
+              <label key={value} className={`font-scale-option${s.fontScale === value ? ' selected' : ''}`}>
+                <input
+                  className="sr-only"
+                  type="radio"
+                  name="font-scale"
+                  value={value}
+                  checked={s.fontScale === value}
+                  onChange={() => setSettings((current) => ({ ...current, fontScale: value }))}
+                />
+                <span>{label}</span>
+                <span className="font-scale-percent">{percent}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <div className="setting-row setting-row-detailed">
+          <span className="s-copy">
+            <span className="s-label">Text in der TabBar anzeigen</span>
+            <span className="s-description">Zeigt Chats, Katalog, Einladungen und Infos</span>
+          </span>
+          <Toggle
+            on={s.showTabLabels}
+            onChange={set('showTabLabels')}
+            label="Text in der TabBar anzeigen"
+          />
         </div>
 
         <div className="sec">App</div>
