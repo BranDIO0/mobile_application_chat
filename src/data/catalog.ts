@@ -31,8 +31,10 @@ export type Msg = {
   dozent?: boolean;
   time: string;
   text?: string;
+  rawText?: string;
   file?: FileAtt;
   important?: boolean;
+  status?: 'sending' | 'sent' | 'failed';
 };
 
 export type Channel = {

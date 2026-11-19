@@ -85,6 +85,10 @@ export function createDynamicModuleFromToken(modToken: string, joined = true): M
   };
 }
 
+export function isRoomJoined(room: ChatRoom): boolean {
+  return room.joined ?? (room.role !== 'none' && room.role !== 'invited');
+}
+
 /**
   * Discovers any user-created modules from server rooms (`getchats`) and merges them with existing modules.
   */
@@ -122,16 +126,16 @@ export function syncModulesWithServerRooms(rooms: ChatRoom[], currentModules: Mo
     if (!modToken) continue;
 
     // On the real server (openapi.yaml), getchats returns all public chats with `joined: boolean`
-    const isRoomJoined = r.joined !== undefined ? r.joined : r.role !== 'none' && r.role !== 'invited';
+    const joined = isRoomJoined(r);
 
     const existing = findModuleByToken(modToken, nextModules);
     if (existing) {
-      if (isRoomJoined) existing.joined = true;
+      if (joined) existing.joined = true;
       if (Array.isArray(r.participants) && r.participants.length > 0) {
         existing.participants = Math.max(existing.participants, r.participants.length);
       }
     } else {
-      const dyn = createDynamicModuleFromToken(modToken, isRoomJoined);
+      const dyn = createDynamicModuleFromToken(modToken, joined);
       if (Array.isArray(r.participants) && r.participants.length > 0) {
         dyn.participants = r.participants.length;
       }
@@ -349,6 +353,7 @@ export function parseChatMessage(m: ChatMessage, currentUserId: string, token?: 
     time,
     text,
     file,
+    rawText: m.text,
     important: Boolean(m.important),
   };
 }

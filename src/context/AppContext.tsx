@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { formatError } from '../api/client';
 import { chatApi } from '../api/chatApi';
 import {
@@ -16,6 +16,7 @@ import {
   type FileAtt,
   type Invitation,
   type Module,
+  type Msg,
   type Notif,
   type NotifTarget,
   type ScreenId,
@@ -28,6 +29,7 @@ import {
   buildModuleMainRoomName,
   buildSubgroupRoomName,
   formatFileSize,
+  isRoomJoined,
   parseChatInvite,
   parseChatMessage,
   parseChatRoom,
@@ -38,6 +40,87 @@ export type Dir = 'push' | 'pop' | 'fade';
 export type Member = { id: string; role: string; hash?: string };
 export type InviteState = { pending: string[]; members: Member[] };
 export type OpenFile = { file: FileAtt; sharedBy: string; channelId: string };
+
+type FontScale = 'standard' | 'large' | 'xlarge';
+type ChatLoadState = 'loading' | 'ready' | 'error';
+type OutgoingMessage = {
+  chatId: string;
+  token: string;
+  mode: ServerMode;
+  text: string;
+  file?: File;
+  message: Msg;
+  afterId: number;
+  confirmedId?: number;
+};
+
+function latestMessageId(channel: Channel) {
+  return channel.messages.reduce((lastId, message) => Math.max(lastId, Number(message.id) || 0), 0);
+}
+
+function reconcileOutgoing(items: OutgoingMessage[], channels: Channel[], token: string | null, mode: ServerMode) {
+  const current = items.filter((item) => item.token === token && item.mode === mode);
+  const claimed = new Map<string, Set<number>>();
+  const claimedIn = (chatId: string) => {
+    const ids = claimed.get(chatId) ?? new Set<number>();
+    claimed.set(chatId, ids);
+    return ids;
+  };
+  for (const item of current) {
+    if (item.confirmedId !== undefined) claimedIn(item.chatId).add(item.confirmedId);
+  }
+
+  const reconciled = current.map((item) => {
+    if (item.message.status !== 'sent' || item.confirmedId !== undefined) return item;
+    const ids = claimedIn(item.chatId);
+    const match = channels.find((room) => room.id === item.chatId)?.messages.find((message) => {
+      const id = Number(message.id);
+      return message.from === 'self' && message.rawText === item.text && id > item.afterId && !ids.has(id);
+    });
+    if (!match) return item;
+    const confirmedId = Number(match.id);
+    ids.add(confirmedId);
+    return { ...item, confirmedId };
+  });
+
+  // A server message can confirm only one send, even when two identical sends finish out of order.
+  const unresolved = reconciled.filter((item) => item.confirmedId === undefined && item.message.status !== 'failed');
+  const retained = reconciled.filter((item) => {
+    const { confirmedId } = item;
+    return confirmedId === undefined || unresolved.some((other) =>
+      other.chatId === item.chatId && other.text === item.text && other.afterId < confirmedId,
+    );
+  });
+  return retained.length === items.length && retained.every((item, index) => item === items[index]) ? items : retained;
+}
+
+const SETTINGS_KEY = 'hey-accessibility-settings';
+const DEFAULT_SETTINGS = {
+  push: true,
+  mentionsOnly: false,
+  showArchived: true,
+  highContrast: false,
+  fontScale: 'standard' as FontScale,
+  showTabLabels: false,
+};
+
+function loadSettings(): typeof DEFAULT_SETTINGS {
+  try {
+    const stored = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}');
+    return {
+      push: stored.push !== false,
+      mentionsOnly: stored.mentionsOnly === true,
+      showArchived: stored.showArchived !== false,
+      highContrast: stored.highContrast === true,
+      fontScale: stored.fontScale === 'large' || stored.fontScale === 'xlarge'
+        ? stored.fontScale
+        : 'standard',
+      showTabLabels: stored.showTabLabels === true,
+    };
+  } catch {
+    return DEFAULT_SETTINGS;
+  }
+}
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -105,8 +188,12 @@ function useAppState() {
   const [notifs, setNotifs] = useState<Notif[]>(() =>
     isMockModeEnabled() ? MOCK_INITIAL_NOTIFS : [],
   );
-  const [settings, setSettings] = useState({ push: true, mentionsOnly: false, showArchived: true });
+  const [settings, setSettings] = useState(loadSettings);
+  useEffect(() => {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  }, [settings]);
   const [collapsed, setCollapsed] = useState<string[]>([]);
+  const [semesterTab, setSemesterTab] = useState<'current' | 'ss25' | 'more'>('current');
 
   const toggleCollapsed = (id: string) =>
     setCollapsed((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id]));
@@ -184,8 +271,12 @@ function useAppState() {
   }, [auth.sessionError]);
 
   // ── Load rooms (getchats), invites (getinvites), and profiles (getprofiles) from Backend ──
+  const roomsRequest = useRef(0);
+  const invalidateRoomsRequest = useCallback(() => { roomsRequest.current++; }, []);
   const reloadRooms = useCallback(async () => {
     if (!auth.token || !auth.isSessionReady) return;
+    const request = ++roomsRequest.current;
+    const current = () => request === roomsRequest.current && getServerMode() === serverMode;
     setLoadingRooms(true);
     try {
       const [chatsRes, invitesRes, profilesRes] = await Promise.all([
@@ -193,6 +284,7 @@ function useAppState() {
         chatApi.getInvites(auth.token).catch(() => ({ invites: [] })),
         chatApi.getProfiles(auth.token).catch(() => ({ profiles: [] })),
       ]);
+      if (!current()) return;
 
       const rawRooms = chatsRes.chats ?? [];
       const fetchedProfiles = profilesRes.profiles ?? [];
@@ -212,20 +304,14 @@ function useAppState() {
       const syncedMods = syncModulesWithServerRooms(rawRooms, INITIAL_MODULES, isMockModeEnabled());
       setModules((prevMods) => syncModulesWithServerRooms(rawRooms, prevMods, isMockModeEnabled()));
 
+      const parsed = rawRooms
+        .filter((room) => Number(room.chatid) === 0 || isRoomJoined(room))
+        .map((room) => parseChatRoom(room, [], syncedMods));
       setChannels((prev) => {
-        const msgMap = new Map(prev.map((c) => [c.id, c.messages]));
-        const joinedRooms = rawRooms.filter(
-          (r) => r.chatid === 0 || r.joined !== false,
-        );
-        const parsed = joinedRooms.map((r) =>
-          parseChatRoom(r, msgMap.get(String(r.chatid)) ?? [], syncedMods),
-        );
-        // If no room is active yet or active room is missing, pick the first room
-        if (parsed.length > 0 && !parsed.some((c) => c.id === activeChannelId)) {
-          setActiveChannelId(parsed[0]!.id);
-        }
-        return parsed;
+        const messages = new Map(prev.map((c) => [c.id, c.messages]));
+        return parsed.map((c) => ({ ...c, messages: messages.get(c.id) ?? [] }));
       });
+      setActiveChannelId((id) => parsed.some((c) => c.id === id) ? id : (parsed[0]?.id ?? id));
 
       const serverInvites = (invitesRes.invites ?? []).map((inv) =>
         parseChatInvite(inv, syncedMods.length ? syncedMods : INITIAL_MODULES),
@@ -257,24 +343,31 @@ function useAppState() {
           return [...inviteNotifs, ...prevNotifs];
         });
       }
+      return parsed;
     } catch (e) {
-      toast(formatError(e));
+      if (current()) toast(formatError(e));
     } finally {
-      setLoadingRooms(false);
+      if (current()) setLoadingRooms(false);
     }
-  }, [auth.token, auth.isSessionReady, auth.userId, activeChannelId, toast]);
+  }, [auth.token, auth.isSessionReady, auth.userId, serverMode, toast]);
 
   useEffect(() => {
     if (auth.token && auth.isSessionReady) {
       reloadRooms();
-    } else if (!auth.token) {
-      setChannels([]);
-      setInvitations(isMockModeEnabled() ? MOCK_ARCHIVED_INVITATIONS : []);
+    } else {
+      setLoadingRooms(false);
+      if (!auth.token) {
+        setChannels([]);
+        setInvitations(isMockModeEnabled() ? MOCK_ARCHIVED_INVITATIONS : []);
+      }
     }
-  }, [auth.token, auth.isSessionReady, serverMode, reloadRooms]);
+    return invalidateRoomsRequest;
+  }, [auth.token, auth.isSessionReady, serverMode, reloadRooms, invalidateRoomsRequest]);
 
   const channel = (id: string) => channels.find((c) => c.id === id);
   const moduleOf = (c?: Channel) => modules.find((m) => m.id === c?.moduleId);
+  const moduleMainChannel = (id: string) =>
+    channels.find((c) => !c.archived && c.moduleId === id && c.name === 'Hauptkanal');
   const activeChannel: Channel = channel(activeChannelId) ??
     channels[0] ?? {
       id: '0',
@@ -287,8 +380,11 @@ function useAppState() {
     };
 
   // ── Load & Poll Messages (getmessages) for activeChannel ──
-  const pollMessagesNow = useRef<() => Promise<void>>(async () => {});
+  const pollMessagesNow = useRef<(chatId?: string) => Promise<void>>(async () => {});
   const activeChatId = activeChannel.chatid;
+  const chatLoadKey = JSON.stringify([serverMode, auth.token, activeChatId]);
+  const [chatLoad, setChatLoad] = useState<{ key: string; state: ChatLoadState }>();
+  const chatLoadState = chatLoad?.key === chatLoadKey ? chatLoad.state : 'loading';
 
   useEffect(() => {
     if (!auth.token || !auth.isSessionReady) return;
@@ -296,12 +392,20 @@ function useAppState() {
     const targetIdStr = String(targetChatId);
     let lastId = 0;
     let cancelled = false;
+    let loaded = false;
+    let polling = false;
+    let refreshQueued = false;
 
     const poll = async () => {
-      if (!auth.token || !auth.isSessionReady) return;
+      if (!auth.token || cancelled || polling) return;
+      polling = true;
       try {
         const res = await chatApi.getMessages(auth.token, targetChatId, lastId);
         if (cancelled) return;
+        if (!loaded) {
+          loaded = true;
+          setChatLoad({ key: chatLoadKey, state: 'ready' });
+        }
         const rawMsgs = res.messages ?? [];
         if (rawMsgs.length > 0) {
           lastId = Math.max(lastId, ...rawMsgs.map((m) => Number(m.id)));
@@ -318,37 +422,35 @@ function useAppState() {
           );
         }
       } catch {
-        // Ignore transient polling errors
+        if (!cancelled && !loaded) setChatLoad({ key: chatLoadKey, state: 'error' });
+      } finally {
+        polling = false;
+        if (refreshQueued && !cancelled) {
+          refreshQueued = false;
+          void poll();
+        }
       }
     };
 
-    pollMessagesNow.current = poll;
-    poll();
+    pollMessagesNow.current = async (chatId) => {
+      if (cancelled || (chatId !== undefined && chatId !== targetIdStr)) return;
+      if (polling) {
+        refreshQueued = true;
+        return;
+      }
+      if (!loaded) setChatLoad({ key: chatLoadKey, state: 'loading' });
+      await poll();
+    };
+    void poll();
 
     const timer = window.setInterval(poll, POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [auth.token, auth.isSessionReady, auth.userId, activeChatId]);
+  }, [auth.token, auth.isSessionReady, auth.userId, activeChatId, chatLoadKey]);
 
-  const archivedChatId = channels.find((c) => c.archived)?.chatid;
-
-  useEffect(() => {
-    if (screen !== 'archive' || !auth.token || !auth.isSessionReady || archivedChatId === undefined) return;
-    const archIdStr = String(archivedChatId);
-    chatApi
-      .getMessages(auth.token, archivedChatId, 0)
-      .then((res) => {
-        const parsed = (res.messages ?? []).map((m) =>
-          parseChatMessage(m, auth.userId, auth.token ?? undefined),
-        );
-        setChannels((prev) =>
-          prev.map((c) => (c.id === archIdStr ? { ...c, messages: parsed } : c)),
-        );
-      })
-      .catch(() => {});
-  }, [screen, auth.token, auth.isSessionReady, auth.userId, archivedChatId]);
+  const retryLoadChat = () => void pollMessagesNow.current();
 
   const markOb = (n: number) => setObDone((d) => (d.includes(n) ? d : [...d, n]));
 
@@ -431,60 +533,135 @@ function useAppState() {
   };
 
   // ── Messages & Attachments (postmessage) ──
-  const sendMessage = async (chId: string, text: string) => {
-    const target = channel(chId) ?? activeChannel;
-    if (!auth.token || !text.trim() || target.archived) return;
-    try {
-      await chatApi.postMessage(auth.token, {
-        chatid: target.chatid,
-        text: text.trim(),
-      });
-      await pollMessagesNow.current();
-    } catch (e) {
-      toast(formatError(e));
+  const outgoingId = useRef(0);
+  const [outgoing, setOutgoing] = useState<OutgoingMessage[]>([]);
+  const [failedId, setFailedId] = useState<string | null>(null);
+
+  const reconciledOutgoing = useMemo(
+    () => reconcileOutgoing(outgoing, channels, auth.token, serverMode),
+    [outgoing, channels, auth.token, serverMode],
+  );
+  useEffect(() => {
+    if (reconciledOutgoing !== outgoing) {
+      setOutgoing((items) => items === outgoing ? reconciledOutgoing : items);
     }
-  };
+  }, [outgoing, reconciledOutgoing]);
 
-  const attachFile = async (chId: string, selectedFile?: File) => {
-    const target = channel(chId) ?? activeChannel;
-    if (!auth.token || target.archived) return;
+  useEffect(() => {
+    setFailedId(null);
+  }, [auth.token, serverMode]);
+
+  const pending = reconciledOutgoing.filter(
+    (item) => item.chatId === activeChannel.id && item.confirmedId === undefined,
+  );
+  const sendFail = pending.find((item) => item.message.id === failedId && item.message.status === 'failed');
+  const setSendFail = (failed: { msgId: string } | null) => setFailedId(failed?.msgId ?? null);
+
+  const postOutgoing = async (item: OutgoingMessage, target: Channel) => {
+    const { file, text, message, token, mode } = item;
+    const remove = () => setOutgoing((items) => items.filter((entry) => entry.message.id !== message.id));
 
     try {
-      if (selectedFile) {
-        const base64 = await fileToBase64(selectedFile);
-        const isImg = selectedFile.type.startsWith('image/');
-        const sizeLabel = formatFileSize(selectedFile.size);
-        const metaText = `[ATTACHMENT::${selectedFile.name}::${sizeLabel}::${isImg ? 'img' : 'pdf'}]`;
-
-        await chatApi.postMessage(auth.token, {
-          chatid: target.chatid,
-          text: metaText,
-          photo: isImg ? base64 : undefined,
-          file: !isImg ? base64 : undefined,
-        });
+      if (!file) {
+        await chatApi.postMessage(token, { chatid: target.chatid, text });
       } else {
-        const n = target.messages.filter((m) => m.file && m.from === 'self').length + 1;
-        const fname = `Notizen_${n}.pdf`;
-        const fsize = `${120 + n * 37} KB`;
-        const metaText = `[ATTACHMENT::${fname}::${fsize}::pdf]`;
-        await chatApi.postMessage(auth.token, {
+        const base64 = await fileToBase64(file);
+        if (getServerMode() !== mode) {
+          remove();
+          return;
+        }
+        const isImage = message.file?.kind === 'img';
+        await chatApi.postMessage(token, {
           chatid: target.chatid,
-          text: metaText,
-          file: 'data:application/pdf;base64,JVBERi0xLjQKJcfs...',
+          text,
+          photo: isImage ? base64 : undefined,
+          file: !isImage ? base64 : undefined,
         });
       }
-      await pollMessagesNow.current();
-      toast('Datei hochgeladen');
-    } catch (e) {
-      toast(formatError(e));
+    } catch {
+      setOutgoing((items) => items.map((entry) =>
+        entry.message.id === message.id
+          ? { ...entry, message: { ...message, status: 'failed' } }
+          : entry,
+      ));
+      return;
     }
+
+    setOutgoing((items) => items.map((entry) =>
+      entry.message.id === message.id
+        ? { ...entry, message: { ...message, status: 'sent' } }
+        : entry,
+    ));
+    if (getServerMode() === mode) void pollMessagesNow.current(item.chatId);
+  };
+
+  const queueMessage = (chId: string, content: string | File) => {
+    const target = channel(chId);
+    const token = auth.token;
+    if (!target || !token || !auth.isSessionReady || target.archived) return;
+    const message: Msg = {
+      id: `outgoing-${++outgoingId.current}`,
+      from: 'self',
+      time: new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }),
+      status: 'sending',
+    };
+    let text: string;
+    let file: File | undefined;
+    if (typeof content === 'string') {
+      message.text = content;
+      text = content;
+    } else {
+      file = content;
+      message.file = {
+        name: content.name,
+        size: formatFileSize(content.size),
+        kind: content.type.startsWith('image/') ? 'img' : 'pdf',
+      };
+      text = `[ATTACHMENT::${message.file.name}::${message.file.size}::${message.file.kind}]`;
+    }
+    const item = { chatId: chId, token, mode: serverMode, text, file, message, afterId: latestMessageId(target) };
+    setOutgoing((items) => [...items, item]);
+    void postOutgoing(item, target);
+  };
+
+  const sendMessage = (chId: string, text: string) => {
+    if (text.trim()) queueMessage(chId, text.trim());
+  };
+  const attachFile = (chId: string, file: File) => queueMessage(chId, file);
+
+  const retryMessage = () => {
+    if (!sendFail || getServerMode() !== sendFail.mode) return;
+    const message = { ...sendFail.message, status: 'sending' as const };
+    const retry = { ...sendFail, message, afterId: latestMessageId(activeChannel) };
+    setFailedId(null);
+    setOutgoing((items) => items.map((item) =>
+      item.message.id === message.id ? retry : item,
+    ));
+    void postOutgoing(retry, activeChannel);
+  };
+
+  const deleteMessage = () => {
+    if (!sendFail) return;
+    setOutgoing((items) => items.filter((item) => item.message.id !== sendFail.message.id));
+    setFailedId(null);
   };
 
   // ── Room, Module & Subgroup creation / joining / leaving connected to chatApi ──
   const openChannel = (chId: string, push = true) => {
     setActiveChannelId(chId);
     const c = channel(chId);
+    setFailedId(null);
     if (push) navigate(c?.archived ? 'archive' : 'chat');
+  };
+
+  const openModuleMain = (moduleId: string) => {
+    const main = moduleMainChannel(moduleId);
+    if (!main) {
+      toast('Hauptkanal konnte nicht geöffnet werden');
+      return;
+    }
+    setCollapsed((ids) => ids.filter((id) => id !== moduleId));
+    openChannel(main.id);
   };
 
   const openFile = (file: FileAtt, sharedBy: string, channelId: string) => {
@@ -504,6 +681,27 @@ function useAppState() {
     } catch (e) {
       toast(formatError(e));
     }
+  };
+
+  const leaveModule = async (moduleId: string) => {
+    const mod = modules.find((item) => item.id === moduleId);
+    const token = auth.token;
+    if (!mod || !token) return;
+    const rooms = channels.filter((c) => c.moduleId === moduleId && !c.archived);
+    const results = await Promise.allSettled(rooms.map((room) => chatApi.leaveChat(token, room.chatid)));
+    if (getServerMode() !== serverMode) return;
+    const left = new Set(rooms.filter((_, index) => results[index].status === 'fulfilled').map((room) => room.id));
+    const failed = results.find((result) => result.status === 'rejected');
+    setChannels((items) => items.filter((item) => !left.has(item.id)));
+    if (left.has(activeChannelId)) reset('chats', 'pop');
+    if (failed) {
+      toast(formatError(failed.reason));
+    } else {
+      setModules((items) => items.map((item) => item.id === moduleId ? { ...item, joined: false } : item));
+      setCollapsed((ids) => ids.filter((id) => id !== moduleId));
+      toast(`${mod.full} verlassen`);
+    }
+    void reloadRooms();
   };
 
   const deleteChannel = async (chId: string) => {
@@ -679,42 +877,45 @@ function useAppState() {
   };
 
   const joinModule = async (id: string) => {
-    const m = modules.find((x) => x.id === id);
-    if (!m || !auth.token) return;
-
-    setModules((ms) => ms.map((x) => (x.id === id ? { ...x, joined: true } : x)));
-
-    const existingMain = channels.find(
-      (c) => !c.archived && c.moduleId === id && c.name === 'Hauptkanal',
-    );
-    if (!existingMain) {
-      const rawName = buildModuleMainRoomName(m);
-      try {
-        const res = await chatApi.createChat(auth.token, rawName, true);
-        const newChatId = Number(res.chatid);
-        const newId = String(newChatId);
-        setChannels((cs) => [
-          ...cs.filter((c) => c.id !== newId),
-          {
-            id: newId,
-            chatid: newChatId,
-            rawName,
-            name: 'Hauptkanal',
-            icon: '💬',
-            moduleId: id,
-            members: m.participants + 1,
-            visibility: 'public',
-            messages: [],
-          },
-        ]);
-        setActiveChannelId(newId);
-        reloadRooms();
-      } catch (e) {
-        toast(formatError(e));
+    const module = modules.find((item) => item.id === id);
+    const token = auth.token;
+    if (!module || !token) return;
+    try {
+      const { chats } = await chatApi.getChats(token);
+      if (getServerMode() !== serverMode) return;
+      const main = chats.find((room) => {
+        const parsed = parseChatRoom(room, [], modules);
+        return parsed.moduleId === id && parsed.name === 'Hauptkanal';
+      });
+      let chatId: number;
+      if (main) {
+        if (!isRoomJoined(main)) {
+          await chatApi.joinChat(token, main.chatid);
+        }
+        chatId = main.chatid;
+      } else {
+        const res = await chatApi.createChat(token, buildModuleMainRoomName(module), true);
+        chatId = Number(res.chatid);
       }
+      if (getServerMode() !== serverMode) return;
+      const rooms = await reloadRooms();
+      if (!rooms || getServerMode() !== serverMode) return;
+      const joinedMain = rooms.find((room) =>
+        room.id === String(chatId) && room.moduleId === id && room.name === 'Hauptkanal',
+      );
+      if (!joinedMain) {
+        toast('Hauptkanal konnte nicht geladen werden. Bitte erneut versuchen.');
+        return;
+      }
+      setModules((items) => items.map((item) => item.id === id ? { ...item, joined: true } : item));
+      setCollapsed((ids) => ids.filter((item) => item !== id));
+      setActiveChannelId(joinedMain.id);
+      navigate('chat');
+      markOb(1);
+      toast(`${module.full} beigetreten`);
+    } catch (e) {
+      toast(formatError(e));
     }
-    markOb(1);
-    toast(`${m.full} beigetreten`);
   };
 
   const joinRoomById = async (targetChatId: number): Promise<boolean> => {
@@ -891,7 +1092,10 @@ function useAppState() {
     activeChannelId,
     setActiveChannelId,
     openChannel,
+    moduleMainChannel,
+    openModuleMain,
     leaveChannel,
+    leaveModule,
     deleteChannel,
     createModule,
     createSubgroup,
@@ -902,6 +1106,13 @@ function useAppState() {
     // Messages & Attachments
     typing,
     setTyping,
+    chatLoadState,
+    retryLoadChat,
+    pendingMessages: pending.map((item) => item.message),
+    sendFail,
+    setSendFail,
+    retryMessage,
+    deleteMessage,
     sendMessage,
     attachFile,
     openFile,
@@ -926,6 +1137,8 @@ function useAppState() {
     setSettings,
     collapsed,
     toggleCollapsed,
+    semesterTab,
+    setSemesterTab,
   };
 }
 

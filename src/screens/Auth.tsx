@@ -77,6 +77,7 @@ function ModePillSelector({ disabled }: { disabled?: boolean }) {
 
   return (
     <div
+      className="server-mode-selector"
       style={{
         display: 'grid',
         gridTemplateColumns: '1fr 1fr 1fr',
@@ -131,7 +132,7 @@ export function Login() {
       <StatusBar />
       <form
         className="form-body"
-        style={{ paddingTop: 22, gap: 14 }}
+        style={{ paddingTop: 44, gap: 16 }}
         onSubmit={async (e) => {
           e.preventDefault();
           if (loading) return;
@@ -143,7 +144,7 @@ export function Login() {
           setLoading(false);
         }}
       >
-        <div className="brand" style={{ marginBottom: 4 }}>
+        <div className="brand" style={{ marginBottom: 10 }}>
           <img src={LOGO_SRC} alt="HEy! Logo" />
           <div className="brand-name">HEy!</div>
           <div className="brand-sub">Anmelden mit Hochschulkürzel</div>
@@ -168,7 +169,7 @@ export function Login() {
           />
           <span className="hint">Format: 4 Buchstaben + &quot;it&quot; + 2 Ziffern (z. B. jaehit00)</span>
         </div>
-        <div className="field" style={{ marginTop: 2 }}>
+        <div className="field" style={{ marginTop: 6 }}>
           <label htmlFor="l-pw">Passwort</label>
           <input
             id="l-pw"
@@ -188,7 +189,7 @@ export function Login() {
         <Checkbox on={keep} onChange={setKeep}>
           Angemeldet bleiben (Auto-Login)
         </Checkbox>
-        <button type="submit" className="btn-primary" style={{ marginTop: 10 }} disabled={loading}>
+        <button type="submit" className="btn-primary" style={{ marginTop: 18 }} disabled={loading}>
           {loading ? 'Anmelden…' : 'Anmelden'}
         </button>
         <div className="link-row">
