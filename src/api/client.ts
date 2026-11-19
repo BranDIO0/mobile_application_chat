@@ -8,6 +8,27 @@ export const DIRECT_BACKUP_URL = 'https://api.chat.throin.de';
 
 export const BASE_URL = LIVE_BASE_URL;
 
+const ACCESS_TOKEN_KEY = 'hse_chat_access_token';
+
+/** Reads the X-Access-Token from localStorage (or optional .env.local VITE_ACCESS_TOKEN). */
+export function getAccessToken(): string {
+  return (
+    localStorage.getItem(ACCESS_TOKEN_KEY)?.trim() ||
+    (import.meta.env.VITE_ACCESS_TOKEN as string | undefined)?.trim() ||
+    ''
+  );
+}
+
+/** Persists or clears the X-Access-Token locally in the browser (never committed to Git). */
+export function setAccessToken(token: string): void {
+  const cleaned = token.trim();
+  if (cleaned) {
+    localStorage.setItem(ACCESS_TOKEN_KEY, cleaned);
+  } else {
+    localStorage.removeItem(ACCESS_TOKEN_KEY);
+  }
+}
+
 export function getActiveBaseUrl(): string {
   return getServerMode() === 'backup' ? BACKUP_BASE_URL : LIVE_BASE_URL;
 }
@@ -27,7 +48,11 @@ export class ApiError extends Error {
 /** Converts API and network errors into human-readable messages with status codes. */
 export function formatError(error: unknown): string {
   if (error instanceof ApiError) {
-    if (error.message.startsWith('Apache 403 Forbidden:') || error.message.startsWith('HTTP 404')) {
+    if (
+      error.message.startsWith('403 Forbidden:') ||
+      error.message.startsWith('Apache 403 Forbidden:') ||
+      error.message.startsWith('HTTP 404')
+    ) {
       return error.message;
     }
     if (error.code === 403 || error.code === 404) {
@@ -60,9 +85,14 @@ function buildRequestUrlAndInit(
   method: 'GET' | 'POST',
   name: string,
   params: Params,
+  accessToken?: string,
 ): { url: string; init: RequestInit } {
   let url = `${baseUrl}/`;
-  const init: RequestInit = { method, headers: { Accept: 'application/json' } };
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (accessToken) {
+    headers['X-Access-Token'] = accessToken;
+  }
+  const init: RequestInit = { method, headers };
 
   if (method === 'GET') {
     const query = new URLSearchParams({ request: name });
@@ -71,7 +101,7 @@ function buildRequestUrlAndInit(
     }
     url += `?${query}`;
   } else {
-    init.headers = { ...init.headers, 'Content-Type': 'application/json' };
+    headers['Content-Type'] = 'application/json';
     init.body = JSON.stringify({ request: name, ...params });
   }
 
@@ -94,7 +124,8 @@ export async function request<T = ApiResponse>(
 
   const mode = getServerMode();
   const baseUrl = getActiveBaseUrl();
-  const { url, init } = buildRequestUrlAndInit(baseUrl, method, name, params);
+  const accessToken = mode === 'live' ? getAccessToken() : '';
+  const { url, init } = buildRequestUrlAndInit(baseUrl, method, name, params, accessToken);
 
   let res = await fetch(url, init);
   let text = await res.text();
@@ -118,9 +149,10 @@ export async function request<T = ApiResponse>(
     const isHtml = /^\s*<!doctype|^\s*<html/i.test(text);
     const serverLabel = mode === 'backup' ? 'api.chat.throin.de' : 'www2.hs-esslingen.de';
     let cleanMessage: string;
-    if (isHtml && res.status === 403 && mode === 'live') {
-      cleanMessage =
-        'Apache 403 Forbidden: Der Hochschul-Webserver (www2.hs-esslingen.de) blockiert /~chkohl/chat/index.php. Bitte auf "Backup-Server" (api.chat.throin.de) oder "Mockup" umschalten.';
+    if (res.status === 403 && mode === 'live') {
+      cleanMessage = accessToken
+        ? '403 Forbidden: Der X-Access-Token wurde vom HSE-Server abgelehnt. Bitte Token prüfen.'
+        : '403 Forbidden: Für den HSE-Live-Server ist ein gültiger X-Access-Token erforderlich.';
     } else if (isHtml && res.status === 404) {
       cleanMessage = `HTTP 404 (Not Found): Chat-Endpunkt auf ${serverLabel} nicht gefunden.`;
     } else if (isHtml) {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ChevronRight, LogOut, Settings as SettingsIcon } from 'lucide-react';
-import { formatError } from '../api/client';
+import { ChevronRight, Eye, EyeOff, LogOut, Settings as SettingsIcon } from 'lucide-react';
+import { formatError, getAccessToken, setAccessToken } from '../api/client';
 import { chatApi } from '../api/chatApi';
 import { MainHeader, SubHeader, TabBar, clickable } from '../components/Layout';
 import { useApp } from '../context/AppContext';
@@ -168,6 +168,8 @@ export function Settings() {
   const p = useApp();
   const { settings: s, setSettings, serverMode, setServerMode } = p;
   const [deleting, setDeleting] = useState(false);
+  const [tokenInput, setTokenInput] = useState(() => getAccessToken());
+  const [tokenVisible, setTokenVisible] = useState(false);
 
   const set = (k: keyof typeof s) => (v: boolean) => setSettings({ ...s, [k]: v });
   const shortName = p.displayName
@@ -265,6 +267,64 @@ export function Settings() {
             {serverModeLabel} <Chev />
           </span>
         </div>
+        {serverMode === 'live' && (
+          <div
+            className="setting-row"
+            style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6, padding: '10px 18px' }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <label htmlFor="s-access-token" className="s-label">
+                X-Access-Token (HSE-Live)
+              </label>
+              <span style={{ fontSize: 11, color: tokenInput.trim() ? 'var(--navy)' : 'var(--g500)', fontWeight: 600 }}>
+                {tokenInput.trim() ? 'Gespeichert' : 'Fehlt'}
+              </span>
+            </div>
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input
+                id="s-access-token"
+                type={tokenVisible ? 'text' : 'password'}
+                placeholder="Token eingeben (z. B. a71d…)"
+                value={tokenInput}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setTokenInput(val);
+                  setAccessToken(val);
+                }}
+                autoComplete="off"
+                spellCheck={false}
+                style={{
+                  flex: 1,
+                  padding: '8px 38px 8px 10px',
+                  borderRadius: 'var(--r-md)',
+                  border: '1.5px solid var(--line)',
+                  background: 'var(--input)',
+                  fontSize: 13,
+                  color: 'var(--g800)',
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setTokenVisible((v) => !v)}
+                aria-label={tokenVisible ? 'Token verbergen' : 'Token anzeigen'}
+                style={{
+                  position: 'absolute',
+                  right: 4,
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--g500)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 32,
+                  height: 32,
+                }}
+              >
+                {tokenVisible ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="sec">Konto</div>
         <div className="setting-row">

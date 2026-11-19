@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Check, ChevronRight } from 'lucide-react';
+import { Check, ChevronRight, Eye, EyeOff } from 'lucide-react';
+import { getAccessToken, setAccessToken } from '../api/client';
 import { LOGO_SRC, StatusBar, SubHeader, clickable } from '../components/Layout';
 import { useApp } from '../context/AppContext';
 
@@ -118,13 +119,76 @@ function ModePillSelector({ disabled }: { disabled?: boolean }) {
   );
 }
 
+function AccessTokenField({
+  id,
+  value,
+  onChange,
+  disabled,
+  error,
+}: {
+  id: string;
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+  error?: string | null;
+}) {
+  const [visible, setVisible] = useState(false);
+
+  return (
+    <div className="field">
+      <label htmlFor={id}>X-Access-Token (HSE-Live)</label>
+      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+        <input
+          id={id}
+          className={error ? 'invalid' : ''}
+          type={visible ? 'text' : 'password'}
+          placeholder="Token eingeben (z. B. a71d…)"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          autoComplete="off"
+          spellCheck={false}
+          disabled={disabled}
+          style={{ paddingRight: 42, width: '100%' }}
+        />
+        <button
+          type="button"
+          onClick={() => setVisible((v) => !v)}
+          aria-label={visible ? 'Token verbergen' : 'Token anzeigen'}
+          style={{
+            position: 'absolute',
+            right: 6,
+            background: 'transparent',
+            border: 'none',
+            color: 'var(--g500)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 34,
+            height: 34,
+            borderRadius: 8,
+          }}
+        >
+          {visible ? <EyeOff size={17} /> : <Eye size={17} />}
+        </button>
+      </div>
+      {error ? (
+        <span className="error">{error}</span>
+      ) : (
+        <span className="hint">Wird nur lokal im Browser gespeichert (nicht im Code).</span>
+      )}
+    </div>
+  );
+}
+
 export function Login() {
-  const { login, navigate, remember, userId, mockMode } = useApp();
+  const { login, navigate, remember, userId, mockMode, serverMode } = useApp();
   const [id, setId] = useState(userId);
   const [pw, setPw] = useState('');
+  const [accessToken, setTokenInput] = useState(() => getAccessToken());
   const [keep, setKeep] = useState(remember);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [tokenErr, setTokenErr] = useState<string | null>(null);
 
   return (
     <>
@@ -135,8 +199,16 @@ export function Login() {
         onSubmit={async (e) => {
           e.preventDefault();
           if (loading) return;
+          if (serverMode === 'live' && !accessToken.trim()) {
+            setTokenErr('Bitte X-Access-Token für den HSE-Live-Server eingeben.');
+            return;
+          }
+          if (serverMode === 'live') {
+            setAccessToken(accessToken);
+          }
           setLoading(true);
           setErr(null);
+          setTokenErr(null);
           const effectivePw = pw || (mockMode ? 'password123' : '');
           const errorMsg = await login(id, effectivePw, keep);
           if (errorMsg) setErr(errorMsg);
@@ -150,6 +222,21 @@ export function Login() {
         </div>
 
         <ModePillSelector disabled={loading} />
+
+        {serverMode === 'live' && (
+          <AccessTokenField
+            id="l-access-token"
+            value={accessToken}
+            onChange={(v) => {
+              setTokenInput(v);
+              setAccessToken(v);
+              if (tokenErr) setTokenErr(null);
+              if (err) setErr(null);
+            }}
+            disabled={loading}
+            error={tokenErr}
+          />
+        )}
 
         <div className="field">
           <label htmlFor="l-id">Hochschulkürzel (User-ID)</label>
@@ -202,15 +289,17 @@ export function Login() {
 const USER_ID_REGEX = /^[a-zA-Z]{4}it\d{2}$/;
 
 export function Register() {
-  const { register, back } = useApp();
+  const { register, back, serverMode } = useApp();
   const [id, setId] = useState('');
   const [nickname, setNickname] = useState('');
   const [fullname, setFullname] = useState('');
   const [pw, setPw] = useState('');
   const [pw2, setPw2] = useState('');
+  const [accessToken, setTokenInput] = useState(() => getAccessToken());
   const [tried, setTried] = useState(false);
   const [loading, setLoading] = useState(false);
   const [serverErr, setServerErr] = useState<string | null>(null);
+  const [tokenErr, setTokenErr] = useState<string | null>(null);
 
   const errId =
     tried && !id.trim()
@@ -235,6 +324,11 @@ export function Register() {
           e.preventDefault();
           setTried(true);
           setServerErr(null);
+          setTokenErr(null);
+          if (serverMode === 'live' && !accessToken.trim()) {
+            setTokenErr('Bitte X-Access-Token für den HSE-Live-Server eingeben.');
+            return;
+          }
           if (
             !id.trim() ||
             !USER_ID_REGEX.test(id.trim()) ||
@@ -243,6 +337,9 @@ export function Register() {
             loading
           ) {
             return;
+          }
+          if (serverMode === 'live') {
+            setAccessToken(accessToken);
           }
           setLoading(true);
           const nick = nickname.trim() || id.trim().slice(0, 4);
@@ -253,6 +350,21 @@ export function Register() {
         }}
       >
         <ModePillSelector disabled={loading} />
+
+        {serverMode === 'live' && (
+          <AccessTokenField
+            id="r-access-token"
+            value={accessToken}
+            onChange={(v) => {
+              setTokenInput(v);
+              setAccessToken(v);
+              if (tokenErr) setTokenErr(null);
+              if (serverErr) setServerErr(null);
+            }}
+            disabled={loading}
+            error={tokenErr}
+          />
+        )}
 
         <div className="field">
           <label htmlFor="r-id">Hochschulkürzel (User-ID) *</label>
