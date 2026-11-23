@@ -1,7 +1,14 @@
 import { useEffect, useState } from 'react';
-import { ChevronRight, Eye, EyeOff, LogOut, Settings as SettingsIcon } from 'lucide-react';
+import { ChevronRight, Eye, EyeOff, LogOut, Settings as SettingsIcon, Sparkles, Trash2 } from 'lucide-react';
 import { formatError, getAccessToken, setAccessToken } from '../api/client';
 import { chatApi } from '../api/chatApi';
+import {
+  getGeminiApiKey,
+  getGeminiModel,
+  setGeminiApiKey,
+  setGeminiModel,
+  type GeminiModelId,
+} from '../api/geminiApi';
 import { MainHeader, SubHeader, TabBar, clickable } from '../components/Layout';
 import { useApp } from '../context/AppContext';
 
@@ -175,6 +182,9 @@ export function Settings() {
   const [deleting, setDeleting] = useState(false);
   const [tokenInput, setTokenInput] = useState(() => getAccessToken());
   const [tokenVisible, setTokenVisible] = useState(false);
+  const [geminiKeyInput, setGeminiKeyInput] = useState(() => getGeminiApiKey());
+  const [geminiKeyVisible, setGeminiKeyVisible] = useState(false);
+  const [geminiModel, setGeminiModelState] = useState<GeminiModelId>(() => getGeminiModel());
 
   const set = (k: keyof typeof s) => (v: boolean) => setSettings({ ...s, [k]: v });
   const shortName = p.displayName
@@ -330,6 +340,132 @@ export function Settings() {
             </div>
           </div>
         )}
+
+        <div className="sec">KI-Assistent (Google Gemini)</div>
+        <div
+          className="setting-row"
+          style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8, padding: '12px 18px' }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <label
+              htmlFor="s-gemini-key"
+              className="s-label"
+              style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}
+            >
+              <Sparkles size={16} color="var(--navy)" />
+              <span>Gemini API Key</span>
+            </label>
+            <span
+              style={{
+                fontSize: 11,
+                color: geminiKeyInput.trim() ? 'var(--success)' : 'var(--warn)',
+                background: geminiKeyInput.trim() ? 'var(--success-bg)' : 'var(--warn-bg)',
+                padding: '2px 8px',
+                borderRadius: 999,
+                fontWeight: 700,
+              }}
+            >
+              {geminiKeyInput.trim() ? 'Konfiguriert' : 'Erforderlich'}
+            </span>
+          </div>
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input
+              id="s-gemini-key"
+              type={geminiKeyVisible ? 'text' : 'password'}
+              placeholder="Gemini API Key eingeben (AIza…)"
+              value={geminiKeyInput}
+              onChange={(e) => {
+                const val = e.target.value;
+                setGeminiKeyInput(val);
+                setGeminiApiKey(val);
+              }}
+              autoComplete="off"
+              spellCheck={false}
+              style={{
+                flex: 1,
+                padding: '8px 38px 8px 10px',
+                borderRadius: 'var(--r-md)',
+                border: '1.5px solid var(--line)',
+                background: 'var(--input)',
+                fontSize: 13,
+                color: 'var(--g900)',
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => setGeminiKeyVisible((v) => !v)}
+              aria-label={geminiKeyVisible ? 'Gemini Key verbergen' : 'Gemini Key anzeigen'}
+              style={{
+                position: 'absolute',
+                right: geminiKeyInput.trim() ? 38 : 4,
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--g500)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 32,
+                height: 32,
+              }}
+            >
+              {geminiKeyVisible ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+            {geminiKeyInput.trim() && (
+              <button
+                type="button"
+                onClick={() => {
+                  setGeminiKeyInput('');
+                  setGeminiApiKey('');
+                  p.toast('Gemini API Key entfernt');
+                }}
+                aria-label="Gemini API Key löschen"
+                title="Key löschen"
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--red)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 32,
+                  height: 32,
+                }}
+              >
+                <Trash2 size={16} />
+              </button>
+            )}
+          </div>
+          <span style={{ fontSize: 11.5, color: 'var(--g500)', lineHeight: 1.35 }}>
+            Wird nur lokal im Browser gespeichert (keine Zugangsdaten im Code). Muss hinterlegt sein, um die ✨ KI-Zusammenfassung im Chat zu nutzen.
+          </span>
+        </div>
+        <div className="setting-row">
+          <label htmlFor="s-gemini-model" className="s-label">
+            KI-Modell
+          </label>
+          <select
+            id="s-gemini-model"
+            value={geminiModel}
+            onChange={(e) => {
+              const next = e.target.value as GeminiModelId;
+              setGeminiModelState(next);
+              setGeminiModel(next);
+              p.toast(`KI-Modell: ${next}`);
+            }}
+            style={{
+              background: 'var(--input)',
+              border: '1.5px solid var(--line)',
+              borderRadius: 8,
+              padding: '5px 10px',
+              fontSize: 12.5,
+              fontWeight: 600,
+              color: 'var(--g900)',
+            }}
+          >
+            <option value="gemini-2.5-flash">Gemini 2.5 Flash (Empfohlen)</option>
+            <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+          </select>
+        </div>
 
         <div className="sec">Konto</div>
         <div className="setting-row">
