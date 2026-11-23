@@ -25,12 +25,21 @@ const SCREENS: Record<ScreenId, ComponentType> = {
 };
 
 function PhoneShell() {
-  const { screen, navKey, dir, subgroupModal, moduleModalOpen, toastMsg } = useApp();
+  const { screen, navKey, dir, subgroupModal, moduleModalOpen, toastMsg, settings } = useApp();
   const Screen = SCREENS[screen];
+
+  const fontScaleValue =
+    settings.fontSizeScale === '130' ? '1.3' : settings.fontSizeScale === '115' ? '1.15' : '1';
 
   return (
     <main className="app-stage">
-      <div className="phone">
+      <div
+        className="phone"
+        data-high-contrast={settings.highContrast ? 'true' : 'false'}
+        data-font-scale={settings.fontSizeScale}
+        data-reduced-motion={settings.reducedMotion ? 'true' : 'false'}
+        style={{ '--font-scale': fontScaleValue } as React.CSSProperties}
+      >
         <div className="island" aria-hidden />
         <div key={navKey} className={`screen enter-${dir}`}>
           <Screen />
@@ -38,7 +47,7 @@ function PhoneShell() {
         {subgroupModal && <SubgroupModal />}
         {moduleModalOpen && <ModuleModal />}
         {toastMsg && (
-          <div key={toastMsg.id} className="toast" role="status">
+          <div key={toastMsg.id} className="toast" role="status" aria-live="polite">
             {toastMsg.text}
           </div>
         )}

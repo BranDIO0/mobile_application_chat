@@ -13,6 +13,7 @@ import {
   slugifyName,
   TAFEL,
   type Channel,
+  type ChannelSubtype,
   type FileAtt,
   type Invitation,
   type Module,
@@ -54,6 +55,25 @@ const MOCK_INITIAL_NOTIFS: Notif[] = [
   { id: 'n5', unread: false, time: 'vor 2 Tagen', target: { type: 'channel', channelId: '3' }, html: <><strong>abcdit09</strong> hat deine Einladung zu <strong>Übungsblatt 3</strong> angenommen.</> },
   { id: 'n6', unread: false, time: 'vor 1 Monat', target: { type: 'archive' }, html: <>Kurs <strong>Mathe 1 (SS25)</strong> wurde archiviert. Nur-Lese-Modus aktiv.</> },
 ];
+
+export type FontSizeScale = '100' | '115' | '130';
+
+export interface AppSettings {
+  highContrast: boolean;
+  fontSizeScale: FontSizeScale;
+  showTabLabels: boolean;
+  reducedMotion: boolean;
+}
+
+const DEFAULT_SETTINGS: AppSettings = {
+  highContrast: false,
+  fontSizeScale: '100',
+  showTabLabels: true,
+  reducedMotion:
+    typeof window !== 'undefined'
+      ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      : false,
+};
 
 function useAppState() {
   const auth = useAuth();
@@ -105,11 +125,51 @@ function useAppState() {
   const [notifs, setNotifs] = useState<Notif[]>(() =>
     isMockModeEnabled() ? MOCK_INITIAL_NOTIFS : [],
   );
-  const [settings, setSettings] = useState({ push: true, mentionsOnly: false, showArchived: true });
-  const [collapsed, setCollapsed] = useState<string[]>([]);
+  const [settings, setSettings] = useState<AppSettings>(() => {
+    try {
+      const saved = localStorage.getItem('hey_settings');
+      if (saved) return { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
+    } catch {
+      // fallback
+    }
+    return DEFAULT_SETTINGS;
+  });
 
-  const toggleCollapsed = (id: string) =>
-    setCollapsed((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id]));
+  useEffect(() => {
+    try {
+      localStorage.setItem('hey_settings', JSON.stringify(settings));
+    } catch {
+      // ignore
+    }
+  }, [settings]);
+  // AC 1: Modules are initially collapsed by default (only active module or none open)
+  const [collapsed, setCollapsed] = useState<string[]>(() =>
+    INITIAL_MODULES.filter((m) => m.id !== 'mathe1').map((m) => m.id),
+  );
+  const [accordionMode, setAccordionMode] = useState<boolean>(false);
+
+  const toggleCollapsed = (id: string, forceAccordion?: boolean) => {
+    setCollapsed((prev) => {
+      const isClosed = prev.includes(id);
+      const useAccordion = forceAccordion !== undefined ? forceAccordion : accordionMode;
+      if (isClosed) {
+        if (useAccordion) {
+          const allOtherModuleIds = modules.map((m) => m.id).filter((mId) => mId !== id);
+          return [...new Set([...allOtherModuleIds, 'custom', 'archive'])];
+        }
+        return prev.filter((x) => x !== id);
+      }
+      return [...prev, id];
+    });
+  };
+
+  const collapseAll = () => {
+    setCollapsed([...modules.map((m) => m.id), 'custom', 'archive']);
+  };
+
+  const expandAll = () => {
+    setCollapsed([]);
+  };
 
   const timers = useRef<number[]>([]);
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
@@ -484,6 +544,9 @@ function useAppState() {
   const openChannel = (chId: string, push = true) => {
     setActiveChannelId(chId);
     const c = channel(chId);
+    if (c?.moduleId) {
+      setCollapsed((prev) => prev.filter((id) => id !== c.moduleId));
+    }
     if (push) navigate(c?.archived ? 'archive' : 'chat');
   };
 
@@ -599,6 +662,8 @@ function useAppState() {
       const res = await chatApi.createChat(auth.token, rawName, true);
       const newChatId = Number(res.chatid);
       const newId = String(newChatId);
+      const subtype: ChannelSubtype =
+        type === 'Übungsblatt' ? 'exercise' : type === 'Projekt' ? 'project' : 'study';
       const optimistic: Channel = {
         id: newId,
         chatid: newChatId,
@@ -606,6 +671,7 @@ function useAppState() {
         name: name.trim(),
         icon: '💬',
         moduleId,
+        subtype,
         members: 1,
         visibility: 'public',
         messages: [],
@@ -683,9 +749,13 @@ function useAppState() {
     if (!m || !auth.token) return;
 
     setModules((ms) => ms.map((x) => (x.id === id ? { ...x, joined: true } : x)));
+    setCollapsed((prev) => prev.filter((x) => x !== id));
 
     const existingMain = channels.find(
-      (c) => !c.archived && c.moduleId === id && c.name === 'Hauptkanal',
+      (c) =>
+        !c.archived &&
+        c.moduleId === id &&
+        (c.subtype === 'main' || c.name === 'Hauptkanal' || c.rawName.includes(':MAIN')),
     );
     if (!existingMain) {
       const rawName = buildModuleMainRoomName(m);
@@ -702,6 +772,7 @@ function useAppState() {
             name: 'Hauptkanal',
             icon: '💬',
             moduleId: id,
+            subtype: 'main',
             members: m.participants + 1,
             visibility: 'public',
             messages: [],
@@ -712,9 +783,35 @@ function useAppState() {
       } catch (e) {
         toast(formatError(e));
       }
+    } else {
+      setActiveChannelId(existingMain.id);
     }
     markOb(1);
     toast(`${m.full} beigetreten`);
+  };
+
+  const openModuleMain = (moduleId: string) => {
+    setCollapsed((prev) => prev.filter((id) => id !== moduleId));
+    const mainCh = channels.find(
+      (c) =>
+        !c.archived &&
+        c.moduleId === moduleId &&
+        (c.subtype === 'main' ||
+          c.name.toLowerCase() === 'hauptkanal' ||
+          c.rawName.toLowerCase().includes(':main')),
+    );
+    if (mainCh) {
+      setActiveChannelId(mainCh.id);
+      navigate('chat');
+    } else {
+      const anyCh = channels.find((c) => !c.archived && c.moduleId === moduleId);
+      if (anyCh) {
+        setActiveChannelId(anyCh.id);
+        navigate('chat');
+      } else {
+        joinModule(moduleId);
+      }
+    }
   };
 
   const joinRoomById = async (targetChatId: number): Promise<boolean> => {
@@ -897,6 +994,7 @@ function useAppState() {
     createSubgroup,
     createCustomGroup,
     joinModule,
+    openModuleMain,
     joinRoomById,
 
     // Messages & Attachments
@@ -926,6 +1024,10 @@ function useAppState() {
     setSettings,
     collapsed,
     toggleCollapsed,
+    collapseAll,
+    expandAll,
+    accordionMode,
+    setAccordionMode,
   };
 }
 

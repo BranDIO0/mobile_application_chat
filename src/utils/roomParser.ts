@@ -6,6 +6,7 @@ import {
   slugifyName,
   unslugifyName,
   type Channel,
+  type ChannelSubtype,
   type FileAtt,
   type Invitation,
   type Module,
@@ -176,6 +177,20 @@ export function parseChatRoom(
 
     const members = participantCount ?? (isMain ? matchedMod.participants : 5);
 
+    let subtype: ChannelSubtype = 'study';
+    if (isMain) {
+      subtype = 'main';
+    } else {
+      const lower = `${subRaw} ${name}`.toLowerCase();
+      if (/übung|uebung|blatt|aufgabe/.test(lower)) {
+        subtype = 'exercise';
+      } else if (/projekt|project|proj/.test(lower)) {
+        subtype = 'project';
+      } else {
+        subtype = 'study';
+      }
+    }
+
     return {
       id,
       chatid,
@@ -183,6 +198,7 @@ export function parseChatRoom(
       name,
       icon: archived ? '📦' : '💬',
       moduleId: archived ? undefined : matchedMod.id,
+      subtype,
       members,
       archived,
       visibility: room.visibility,
@@ -195,12 +211,15 @@ export function parseChatRoom(
     const sem = (customMatch.groups.sem ?? CURRENT_SEMESTER).toUpperCase();
     const archived = sem !== CURRENT_SEMESTER;
     const name = unslugifyName(customMatch.groups.name ?? rawName);
+    const lower = name.toLowerCase();
+    const subtype: ChannelSubtype = /projekt|project|proj/.test(lower) ? 'project' : 'custom';
     return {
       id,
       chatid,
       rawName,
       name,
       icon: archived ? '📦' : '🔧',
+      subtype,
       members: participantCount ?? 4,
       archived,
       visibility: room.visibility,
@@ -214,6 +233,7 @@ export function parseChatRoom(
     rawName,
     name: rawName,
     icon: '💬',
+    subtype: 'custom',
     members: participantCount ?? (room.visibility === 'public' ? 42 : 5),
     archived: false,
     visibility: room.visibility,

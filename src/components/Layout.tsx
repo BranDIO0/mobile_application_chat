@@ -34,7 +34,11 @@ export function StatusBar() {
 export function BackBtn({ onClick, icon }: { onClick?: () => void; icon?: ReactNode }) {
   const { back } = useApp();
   return (
-    <button className="icon-btn" aria-label="Zurück" onClick={onClick ?? back}>
+    <button
+      className="icon-btn"
+      aria-label="Zurück zum vorherigen Bildschirm"
+      onClick={onClick ?? back}
+    >
       {icon ?? <ChevronLeft size={26} strokeWidth={2.2} />}
     </button>
   );
@@ -49,7 +53,11 @@ export function MainHeader({ title }: { title: string }) {
       <div className="main-header">
         {stack.length > 1 && <BackBtn />}
         <h1>{title}</h1>
-        <button className="avatar" aria-label="Profil" onClick={() => navigate('profile')}>
+        <button
+          className="avatar"
+          aria-label={`Profil von ${displayName.trim()}`}
+          onClick={() => navigate('profile')}
+        >
           {displayName.trim()[0]?.toUpperCase() ?? 'A'}
         </button>
       </div>
@@ -101,30 +109,34 @@ export function clickable(onClick: () => void) {
 }
 
 const TABS = [
-  { id: 'chats', Icon: MessagesCircle, label: 'Chats' },
-  { id: 'catalog', Icon: LibraryBig, label: 'Modulkatalog' },
-  { id: 'invitations', Icon: Mail, label: 'Einladungen' },
-  { id: 'notifications', Icon: Bell, label: 'Benachrichtigungen' },
-] as const satisfies readonly { id: ScreenId; Icon: unknown; label: string }[];
+  { id: 'chats', Icon: MessagesCircle, label: 'Chats', shortLabel: 'Chats' },
+  { id: 'catalog', Icon: LibraryBig, label: 'Modulkatalog', shortLabel: 'Katalog' },
+  { id: 'invitations', Icon: Mail, label: 'Einladungen', shortLabel: 'Einladungen' },
+  { id: 'notifications', Icon: Bell, label: 'Benachrichtigungen', shortLabel: 'Infos' },
+] as const satisfies readonly { id: ScreenId; Icon: unknown; label: string; shortLabel: string }[];
 
-/** Footer per Figma component: icon-only tabs, red bar above the active tab. */
+/** Footer with optional visible text labels based on accessibility setting */
 export function TabBar({ active }: { active: ScreenId }) {
-  const { tab, invitations, notifs } = useApp();
+  const { tab, invitations, notifs, settings } = useApp();
   const open = invitations.filter((i) => i.status === 'open').length;
   const unread = notifs.some((n) => n.unread);
+  const showLabels = settings.showTabLabels;
+
   return (
-    <nav className="tab-bar">
-      {TABS.map(({ id, Icon, label }) => {
+    <nav className={`tab-bar${showLabels ? ' with-labels' : ''}`} aria-label="Hauptnavigation">
+      {TABS.map(({ id, Icon, label, shortLabel }) => {
         const on = id === active;
         return (
           <button
             key={id}
+            type="button"
             className={`tab${on ? ' active' : ''}`}
             onClick={() => tab(id)}
             aria-label={label}
             aria-current={on ? 'page' : undefined}
           >
-            <Icon size={30} strokeWidth={on ? 2.1 : 1.7} />
+            <Icon size={showLabels ? 22 : 28} strokeWidth={on ? 2.3 : 1.8} />
+            {showLabels && <span className="tab-label">{shortLabel}</span>}
             {id === 'invitations' && open > 0 && <span className="tab-badge">{open}</span>}
             {id === 'notifications' && unread && <span className="tab-dot" />}
           </button>
@@ -144,7 +156,14 @@ export function ChatArea({ channel, dateLabel = 'Heute' }: { channel: Channel; d
   }, [channel.messages.length, channel.id, isTyping]);
 
   return (
-    <div className="chat-area" ref={ref} style={channel.archived ? { background: '#f9fafb' } : undefined}>
+    <div
+      className="chat-area"
+      ref={ref}
+      role="log"
+      aria-live="polite"
+      aria-label={`Nachrichten in ${channel.name}`}
+      style={channel.archived ? { background: '#f9fafb' } : undefined}
+    >
       {channel.messages.length === 0 ? (
         <div className="empty-chat">
           <MessagesCircle size={34} strokeWidth={1.6} />
