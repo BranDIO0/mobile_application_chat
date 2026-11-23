@@ -10,10 +10,15 @@ import {
   Hash,
   LogOut,
   Plus,
+  RefreshCw,
+  Settings as SettingsIcon,
+  Sparkles,
   Trash2,
   UserPlus,
   Users,
+  X,
 } from 'lucide-react';
+import { hasGeminiApiKey, summarizeChatWithGemini, type ChatAiSummary } from '../api/geminiApi';
 import { ChatArea, InputBar, MainHeader, SubHeader, TabBar } from '../components/Layout';
 import type { Channel } from '../data/catalog';
 import { CATEGORIES, slugifyName } from '../data/catalog';
@@ -393,10 +398,54 @@ export function ChatView() {
   const [highlightState, setHighlightState] = useState<{ channelId: string; msgId: string } | null>(
     null,
   );
+  const [dismissedChipChannel, setDismissedChipChannel] = useState<string | null>(null);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiState, setAiState] = useState<{
+    channelId: string;
+    loading: boolean;
+    error: string | null;
+    summary: ChatAiSummary | null;
+  }>({
+    channelId: ch.id,
+    loading: false,
+    error: null,
+    summary: null,
+  });
   const highlightTimer = useRef<number | null>(null);
 
   const pinsExpanded = pinsState.channelId === ch.id && pinsState.open;
   const highlightedMsgId = highlightState?.channelId === ch.id ? highlightState.msgId : null;
+  const hasKey = hasGeminiApiKey();
+  const activeAi =
+    aiState.channelId === ch.id
+      ? aiState
+      : { channelId: ch.id, loading: false, error: null, summary: null };
+
+  const runAiSummary = async () => {
+    if (!hasGeminiApiKey()) {
+      setAiState({ channelId: ch.id, loading: false, error: null, summary: null });
+      return;
+    }
+    setAiState({ channelId: ch.id, loading: true, error: null, summary: null });
+    try {
+      const summary = await summarizeChatWithGemini(ch.name, mod?.short, ch.messages);
+      setAiState({ channelId: ch.id, loading: false, error: null, summary });
+    } catch (e) {
+      setAiState({
+        channelId: ch.id,
+        loading: false,
+        error: e instanceof Error ? e.message : String(e),
+        summary: null,
+      });
+    }
+  };
+
+  const openAiSummary = () => {
+    setAiOpen(true);
+    if (hasGeminiApiKey() && (!activeAi.summary || activeAi.error) && !activeAi.loading) {
+      runAiSummary();
+    }
+  };
 
   const importantInfos = extractImportantMessages(ch.messages);
   const orderedInfos = [...importantInfos].reverse();
@@ -438,6 +487,15 @@ export function ChatView() {
         title={ch.name}
         sub={`${mod ? `${mod.short} · WS26` : 'Eigene Gruppe'} · #${ch.chatid} · ${ch.members} Teiln.`}
       >
+        <button
+          type="button"
+          className="icon-btn ai-header-btn"
+          aria-label="KI-Zusammenfassung"
+          title="KI-Zusammenfassung (Was habe ich verpasst?)"
+          onClick={openAiSummary}
+        >
+          <Sparkles size={20} />
+        </button>
         <button className="icon-btn" aria-label="Mitglieder" onClick={() => p.navigate('invite')}>
           <Users size={22} />
         </button>
@@ -491,8 +549,156 @@ export function ChatView() {
           )}
         </div>
       )}
+      {ch.messages.length >= 3 && dismissedChipChannel !== ch.id && (
+        <div className="ai-chip-banner">
+          <button type="button" className="ai-chip-btn" onClick={openAiSummary}>
+            <Sparkles size={14} />
+            <span>Was habe ich verpasst? · KI-Zusammenfassung</span>
+          </button>
+          <button
+            type="button"
+            className="ai-chip-close"
+            aria-label="Hinweis ausblenden"
+            onClick={() => setDismissedChipChannel(ch.id)}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
       <ChatArea channel={ch} highlightedMsgId={highlightedMsgId} />
       <InputBar channel={ch} />
+      {aiOpen && (
+        <div
+          className="modal-overlay"
+          onClick={() => setAiOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="ai-summary-title"
+        >
+          <div className="modal-sheet ai-summary-sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-handle" aria-hidden />
+            <div className="ai-summary-header">
+              <div>
+                <h2 id="ai-summary-title" className="modal-title" style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                  <Sparkles size={20} color="var(--navy)" />
+                  <span>KI-Zusammenfassung</span>
+                </h2>
+                <div className="modal-sub" style={{ marginTop: 2 }}>
+                  {ch.name}
+                  {mod ? ` · ${mod.short}` : ''}
+                  {activeAi.summary ? ` · Stand ${activeAi.summary.generatedAt}` : ''}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="icon-btn"
+                aria-label="Schließen"
+                onClick={() => setAiOpen(false)}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {!hasKey ? (
+              <div className="ai-key-missing">
+                <div className="ai-key-missing-title">Gemini API Key erforderlich</div>
+                <p>
+                  Um Chatverläufe per KI zusammenzufassen, hinterlege bitte zuerst deinen eigenen
+                  Google Gemini API Key in den Einstellungen. Der Key wird ausschließlich lokal in
+                  deinem Browser gespeichert.
+                </p>
+                <button
+                  type="button"
+                  className="btn-primary md"
+                  onClick={() => {
+                    setAiOpen(false);
+                    p.navigate('settings');
+                  }}
+                >
+                  <SettingsIcon size={17} />
+                  <span>In den Einstellungen hinterlegen</span>
+                </button>
+              </div>
+            ) : activeAi.loading ? (
+              <div className="ai-loading-box">
+                <div className="loader" style={{ margin: '8px 0' }} aria-hidden>
+                  <span />
+                  <span />
+                  <span />
+                </div>
+                <div>Analysiere {Math.min(ch.messages.length, 60)} Nachrichten mit Gemini…</div>
+              </div>
+            ) : activeAi.error ? (
+              <div className="ai-error-box">
+                <div className="ai-error-title">Zusammenfassung fehlgeschlagen</div>
+                <p>{activeAi.error}</p>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button type="button" className="btn-primary md" onClick={runAiSummary}>
+                    <RefreshCw size={16} />
+                    <span>Erneut versuchen</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => {
+                      setAiOpen(false);
+                      p.navigate('settings');
+                    }}
+                  >
+                    <SettingsIcon size={16} />
+                    <span>Einstellungen</span>
+                  </button>
+                </div>
+              </div>
+            ) : activeAi.summary ? (
+              <div className="ai-summary-sections">
+                <div className="ai-section">
+                  <div className="ai-section-title">📝 TL;DR (Kernaussagen)</div>
+                  <ul className="ai-list">
+                    {activeAi.summary.tldr.map((point, idx) => (
+                      <li key={idx}>{point}</li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="ai-section">
+                  <div className="ai-section-title">❓ Offene Fragen &amp; To-Dos</div>
+                  {activeAi.summary.openQuestionsAndTodos.length > 0 ? (
+                    <ul className="ai-list">
+                      {activeAi.summary.openQuestionsAndTodos.map((todo, idx) => (
+                        <li key={idx}>{todo}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="ai-empty-sub">Keine offenen Fragen oder To-Dos erkannt.</div>
+                  )}
+                </div>
+
+                {activeAi.summary.keyDates.length > 0 && (
+                  <div className="ai-section">
+                    <div className="ai-section-title">📅 Erkannte Termine &amp; Fristen</div>
+                    <ul className="ai-list">
+                      {activeAi.summary.keyDates.map((d, idx) => (
+                        <li key={idx}>{d}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                  <button type="button" className="btn-secondary" onClick={runAiSummary}>
+                    <RefreshCw size={16} />
+                    <span>Neu generieren</span>
+                  </button>
+                  <button type="button" className="btn-primary md" onClick={() => setAiOpen(false)}>
+                    <span>Fertig</span>
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
       {menu && (
         <>
           <div className="menu-backdrop" onClick={() => setMenu(false)} />
