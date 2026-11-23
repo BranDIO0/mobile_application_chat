@@ -29,9 +29,11 @@ import {
   buildModuleMainRoomName,
   buildSubgroupRoomName,
   formatFileSize,
+  isRoomJoinedByUser,
   parseChatInvite,
   parseChatMessage,
   parseChatRoom,
+  sanitizeServerToken,
   syncModulesWithServerRooms,
 } from '../utils/roomParser';
 
@@ -84,7 +86,9 @@ function useAppState() {
   const [navKey, setNavKey] = useState(0);
   const [toastMsg, setToastMsg] = useState<{ id: number; text: string } | null>(null);
 
-  const [displayName, setDisplayName] = useState(() => localStorage.getItem('displayName') ?? 'Max Mustermann');
+  const [displayName, setDisplayName] = useState(
+    () => localStorage.getItem('displayName') ?? (isMockModeEnabled() ? 'Max Mustermann' : auth.userId || 'Studierender'),
+  );
   const [onboarded, setOnboarded] = useState(() => localStorage.getItem('onboarded') === 'true');
   const [obDone, setObDone] = useState<number[]>(() => {
     try {
@@ -108,12 +112,24 @@ function useAppState() {
   }, [obDone]);
 
   const [modules, setModules] = useState<Module[]>(() =>
-    INITIAL_MODULES.map((m) => ({ ...m, joined: isMockModeEnabled() ? m.joined : false })),
+    INITIAL_MODULES.map((m) => ({
+      ...m,
+      participants: isMockModeEnabled() ? m.participants : 0,
+      joined: isMockModeEnabled() ? m.joined : false,
+    })),
   );
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [serverRooms, setServerRooms] = useState<import('../types').ChatRoom[]>([]);
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [loadingRooms, setLoadingRooms] = useState(false);
-  const [activeChannelId, setActiveChannelId] = useState<string>('1');
+  const [activeChannelId, setActiveChannelIdState] = useState<string>('0');
+  const activeChannelIdRef = useRef<string>('0');
+  const setActiveChannelId = useCallback((id: string) => {
+    activeChannelIdRef.current = id;
+    setActiveChannelIdState(id);
+  }, []);
+  const localChannelsRef = useRef<Map<string, Channel>>(new Map());
+  const localModulesRef = useRef<Map<string, Module>>(new Map());
   const [typing, setTyping] = useState<string | null>(null);
   const [openFileState, setOpenFile] = useState<OpenFile>({ file: TAFEL, sharedBy: 'abcdit09', channelId: '2' });
   const [subgroupModal, setSubgroupModal] = useState<string | null>(null);
@@ -223,10 +239,20 @@ function useAppState() {
     setServerModeState(mode);
     auth.syncModeToken(mode);
     const useMock = mode === 'mock';
+    localChannelsRef.current.clear();
+    localModulesRef.current.clear();
     setChannels([]);
+    setServerRooms([]);
+    setInviteMap({});
     setInvitations(useMock ? MOCK_ARCHIVED_INVITATIONS : []);
     setNotifs(useMock ? MOCK_INITIAL_NOTIFS : []);
-    setModules(INITIAL_MODULES.map((m) => ({ ...m, joined: useMock ? m.joined : false })));
+    setModules(
+      INITIAL_MODULES.map((m) => ({
+        ...m,
+        participants: useMock ? m.participants : 0,
+        joined: useMock ? m.joined : false,
+      })),
+    );
   };
 
   const setMockMode = (useMock: boolean) => {
@@ -254,7 +280,11 @@ function useAppState() {
         chatApi.getProfiles(auth.token).catch(() => ({ profiles: [] })),
       ]);
 
-      const rawRooms = chatsRes.chats ?? [];
+      const rawRooms = (chatsRes.chats ?? []).map((r) => ({
+        ...r,
+        chatid: Number(r.chatid),
+      }));
+      setServerRooms(rawRooms);
       const fetchedProfiles = profilesRes.profiles ?? [];
       setProfiles(fetchedProfiles);
 
@@ -269,19 +299,71 @@ function useAppState() {
       }
 
       // Sync modules (including dynamically created server modules!)
-      const syncedMods = syncModulesWithServerRooms(rawRooms, INITIAL_MODULES, isMockModeEnabled());
-      setModules((prevMods) => syncModulesWithServerRooms(rawRooms, prevMods, isMockModeEnabled()));
+      const baseMods = [
+        ...INITIAL_MODULES,
+        ...Array.from(localModulesRef.current.values()).filter(
+          (lm) => !INITIAL_MODULES.some((im) => im.id === lm.id),
+        ),
+      ];
+      const syncedMods = syncModulesWithServerRooms(
+        rawRooms,
+        baseMods,
+        isMockModeEnabled(),
+        auth.userId,
+      ).map((m) => {
+        const localMod = localModulesRef.current.get(m.id);
+        if (localMod && localMod.joined) {
+          return {
+            ...m,
+            short: localMod.short || m.short,
+            full: localMod.full || m.full,
+            code: localMod.code || m.code,
+            prof: localMod.prof || m.prof,
+            category: localMod.category || m.category,
+            joined: true,
+            participants: Math.max(1, m.participants, localMod.participants),
+          };
+        }
+        return m;
+      });
+      setModules(syncedMods);
 
       setChannels((prev) => {
         const msgMap = new Map(prev.map((c) => [c.id, c.messages]));
         const joinedRooms = rawRooms.filter(
-          (r) => r.chatid === 0 || r.joined !== false,
+          (r) =>
+            isRoomJoinedByUser(r, auth.userId) ||
+            localChannelsRef.current.has(String(r.chatid)),
         );
         const parsed = joinedRooms.map((r) =>
           parseChatRoom(r, msgMap.get(String(r.chatid)) ?? [], syncedMods),
         );
-        // If no room is active yet or active room is missing, pick the first room
-        if (parsed.length > 0 && !parsed.some((c) => c.id === activeChannelId)) {
+        // Preserve locally created/joined channels even if the server's getchats response is delayed or omits them initially
+        for (const [localId, localCh] of localChannelsRef.current.entries()) {
+          if (!parsed.some((c) => c.id === localId)) {
+            parsed.push({
+              ...localCh,
+              messages: msgMap.get(localId) ?? localCh.messages,
+            });
+          }
+        }
+        // Ensure Main Chat (#0) is always available as a real room on Live and Backup servers
+        if (!isMockModeEnabled() && !parsed.some((c) => c.chatid === 0)) {
+          parsed.unshift({
+            id: '0',
+            chatid: 0,
+            rawName: 'Hauptchat (#0)',
+            name: 'Hauptchat (#0)',
+            icon: '💬',
+            subtype: 'custom',
+            members: Math.max(1, fetchedProfiles.length),
+            visibility: 'public',
+            messages: msgMap.get('0') ?? [],
+          });
+        }
+        // Use activeChannelIdRef.current to avoid stale closure overwriting newly selected room!
+        const currentActiveId = activeChannelIdRef.current;
+        if (parsed.length > 0 && !parsed.some((c) => c.id === currentActiveId)) {
           setActiveChannelId(parsed[0]!.id);
         }
         return parsed;
@@ -322,7 +404,7 @@ function useAppState() {
     } finally {
       setLoadingRooms(false);
     }
-  }, [auth.token, auth.isSessionReady, auth.userId, activeChannelId, toast]);
+  }, [auth.token, auth.isSessionReady, auth.userId, setActiveChannelId, toast]);
 
   useEffect(() => {
     if (auth.token && auth.isSessionReady) {
@@ -560,6 +642,10 @@ function useAppState() {
     if (!target || !auth.token) return;
     try {
       await chatApi.leaveChat(auth.token, target.chatid);
+      localChannelsRef.current.delete(chId);
+      if (target.moduleId && target.subtype === 'main') {
+        localModulesRef.current.delete(target.moduleId);
+      }
       setChannels((cs) => cs.filter((c) => c.id !== chId));
       toast(`${target.name} verlassen`);
       back();
@@ -574,6 +660,10 @@ function useAppState() {
     if (!target || !auth.token) return;
     try {
       await chatApi.deleteChat(auth.token, target.chatid);
+      localChannelsRef.current.delete(chId);
+      if (target.moduleId && target.subtype === 'main') {
+        localModulesRef.current.delete(target.moduleId);
+      }
       setChannels((cs) => cs.filter((c) => c.id !== chId));
       toast(`${target.name} gelöscht`);
       back();
@@ -585,7 +675,7 @@ function useAppState() {
 
   /**
    * Allows any user to create a brand-new Module (Course) on the server!
-   * Creates the Module entry and immediately creates its `WS26:MOD:<Slug>:MAIN` room via `createchat`.
+   * Creates the Module entry and immediately creates its `WS26_MOD_<Slug>_MAIN` room via `createchat`.
    */
   const createModule = async (
     shortName: string,
@@ -597,7 +687,7 @@ function useAppState() {
     if (!auth.token) return undefined;
     const shortClean = shortName.trim().slice(0, 14);
     const fullClean = fullName.trim() || shortClean;
-    const slug = slugifyName(shortClean);
+    const slug = sanitizeServerToken(shortClean) || slugifyName(shortClean);
     const words = shortClean.split(/\s+/).filter(Boolean);
     const abbr =
       words.length >= 2
@@ -619,16 +709,21 @@ function useAppState() {
 
     const rawName = buildModuleMainRoomName(newMod);
     try {
-      const res = await chatApi.createChat(auth.token, rawName, true);
+      const res = await chatApi.createChat(auth.token, rawName);
       const newChatId = Number(res.chatid);
+      if (!res.chatid && res.chatid !== 0) {
+        throw new Error('Server hat keine gültige Chat-ID für das neue Modul zurückgegeben.');
+      }
       const newId = String(newChatId);
 
+      localModulesRef.current.set(newMod.id, newMod);
       setModules((prev) => {
         const exists = prev.some((m) => m.id === newMod.id);
         return exists
-          ? prev.map((m) => (m.id === newMod.id ? { ...m, joined: true } : m))
+          ? prev.map((m) => (m.id === newMod.id ? { ...m, joined: true, participants: Math.max(1, m.participants) } : m))
           : [...prev, newMod];
       });
+      setCollapsed((prev) => prev.filter((x) => x !== newMod.id));
 
       const mainChannel: Channel = {
         id: newId,
@@ -637,16 +732,18 @@ function useAppState() {
         name: 'Hauptkanal',
         icon: '💬',
         moduleId: newMod.id,
+        subtype: 'main',
         members: 1,
         visibility: 'public',
         messages: [],
       };
+      localChannelsRef.current.set(newId, mainChannel);
       setChannels((cs) => [...cs.filter((c) => c.id !== newId), mainChannel]);
       setActiveChannelId(newId);
       setModuleModalOpen(false);
       markOb(1);
-      toast(`Modul „${newMod.short}“ angelegt`);
-      reloadRooms();
+      toast(`Modul „${newMod.short}“ angelegt (#${newChatId})`);
+      await reloadRooms();
       return newId;
     } catch (e) {
       toast(formatError(e));
@@ -659,7 +756,7 @@ function useAppState() {
     if (!mod || !auth.token) return undefined;
     const rawName = buildSubgroupRoomName(mod, name);
     try {
-      const res = await chatApi.createChat(auth.token, rawName, true);
+      const res = await chatApi.createChat(auth.token, rawName);
       const newChatId = Number(res.chatid);
       const newId = String(newChatId);
       const subtype: ChannelSubtype =
@@ -676,12 +773,13 @@ function useAppState() {
         visibility: 'public',
         messages: [],
       };
+      localChannelsRef.current.set(newId, optimistic);
       setChannels((cs) => [...cs.filter((c) => c.id !== newId), optimistic]);
       setActiveChannelId(newId);
       setSubgroupModal(null);
       markOb(2);
-      toast(`${type} „${name.trim()}“ erstellt`);
-      reloadRooms();
+      toast(`${type} „${name.trim()}“ erstellt (#${newChatId})`);
+      await reloadRooms();
       return newId;
     } catch (e) {
       toast(formatError(e));
@@ -694,7 +792,7 @@ function useAppState() {
     const rawName = buildCustomGroupRoomName(name);
     const icon = type === 'Studiengruppe' ? '📖' : type.startsWith('AStA') ? '🏛️' : '🔧';
     try {
-      const res = await chatApi.createChat(auth.token, rawName, true);
+      const res = await chatApi.createChat(auth.token, rawName);
       const newChatId = Number(res.chatid);
       const newId = String(newChatId);
       const optimistic: Channel = {
@@ -707,6 +805,7 @@ function useAppState() {
         visibility: 'public',
         messages: [],
       };
+      localChannelsRef.current.set(newId, optimistic);
       setChannels((cs) => [...cs.filter((c) => c.id !== newId), optimistic]);
       setInviteMap((m) => ({
         ...m,
@@ -738,7 +837,7 @@ function useAppState() {
           ? `Gruppe erstellt · ${invitees.length} Einladung(en) gesendet`
           : 'Gruppe erstellt',
       );
-      reloadRooms();
+      await reloadRooms();
     } catch (e) {
       toast(formatError(e));
     }
@@ -748,46 +847,93 @@ function useAppState() {
     const m = modules.find((x) => x.id === id);
     if (!m || !auth.token) return;
 
-    setModules((ms) => ms.map((x) => (x.id === id ? { ...x, joined: true } : x)));
-    setCollapsed((prev) => prev.filter((x) => x !== id));
-
     const existingMain = channels.find(
       (c) =>
         !c.archived &&
         c.moduleId === id &&
-        (c.subtype === 'main' || c.name === 'Hauptkanal' || c.rawName.includes(':MAIN')),
+        (c.subtype === 'main' ||
+          c.name === 'Hauptkanal' ||
+          /[:_]MAIN$/i.test(c.rawName)),
     );
-    if (!existingMain) {
-      const rawName = buildModuleMainRoomName(m);
-      try {
-        const res = await chatApi.createChat(auth.token, rawName, true);
-        const newChatId = Number(res.chatid);
-        const newId = String(newChatId);
-        setChannels((cs) => [
-          ...cs.filter((c) => c.id !== newId),
-          {
-            id: newId,
-            chatid: newChatId,
-            rawName,
-            name: 'Hauptkanal',
-            icon: '💬',
-            moduleId: id,
-            subtype: 'main',
-            members: m.participants + 1,
-            visibility: 'public',
-            messages: [],
-          },
-        ]);
-        setActiveChannelId(newId);
-        reloadRooms();
-      } catch (e) {
-        toast(formatError(e));
-      }
-    } else {
+
+    if (existingMain) {
+      localModulesRef.current.set(id, { ...m, joined: true });
+      setModules((ms) => ms.map((x) => (x.id === id ? { ...x, joined: true } : x)));
+      setCollapsed((prev) => prev.filter((x) => x !== id));
       setActiveChannelId(existingMain.id);
+      markOb(1);
+      toast(`${m.full} geöffnet`);
+      if (screen !== 'chat') {
+        navigate('chat');
+      }
+      return;
     }
-    markOb(1);
-    toast(`${m.full} beigetreten`);
+
+    try {
+      // Fetch latest server rooms to check if this module's main room already exists as a public chat
+      let latestRooms = serverRooms;
+      try {
+        const chatsRes = await chatApi.getChats(auth.token);
+        latestRooms = (chatsRes.chats ?? []).map((r) => ({ ...r, chatid: Number(r.chatid) }));
+        setServerRooms(latestRooms);
+      } catch {
+        // fall back to cached serverRooms
+      }
+
+      const existingServerRoom = latestRooms.find((r) => {
+        const parsed = parseChatRoom(r, [], modules);
+        return !parsed.archived && parsed.moduleId === id && parsed.subtype === 'main';
+      });
+
+      let newChatId: number;
+      let rawName: string;
+
+      if (existingServerRoom) {
+        newChatId = Number(existingServerRoom.chatid);
+        rawName = String(existingServerRoom.chatname);
+        if (!isRoomJoinedByUser(existingServerRoom, auth.userId)) {
+          await chatApi.joinChat(auth.token, newChatId);
+        }
+      } else {
+        rawName = buildModuleMainRoomName(m);
+        const res = await chatApi.createChat(auth.token, rawName);
+        newChatId = Number(res.chatid);
+      }
+
+      const newId = String(newChatId);
+      const joinedMod: Module = {
+        ...m,
+        joined: true,
+        participants: Math.max(1, m.participants + 1),
+      };
+      localModulesRef.current.set(id, joinedMod);
+      setModules((ms) => ms.map((x) => (x.id === id ? joinedMod : x)));
+      setCollapsed((prev) => prev.filter((x) => x !== id));
+
+      const joinedChannel: Channel = {
+        id: newId,
+        chatid: newChatId,
+        rawName,
+        name: 'Hauptkanal',
+        icon: '💬',
+        moduleId: id,
+        subtype: 'main',
+        members: Math.max(1, m.participants + 1),
+        visibility: 'public',
+        messages: [],
+      };
+      localChannelsRef.current.set(newId, joinedChannel);
+      setChannels((cs) => [...cs.filter((c) => c.id !== newId), joinedChannel]);
+      setActiveChannelId(newId);
+      markOb(1);
+      toast(`${m.full} beigetreten (#${newChatId})`);
+      if (screen !== 'chat') {
+        navigate('chat');
+      }
+      await reloadRooms();
+    } catch (e) {
+      toast(formatError(e));
+    }
   };
 
   const openModuleMain = (moduleId: string) => {
@@ -798,7 +944,7 @@ function useAppState() {
         c.moduleId === moduleId &&
         (c.subtype === 'main' ||
           c.name.toLowerCase() === 'hauptkanal' ||
-          c.rawName.toLowerCase().includes(':main')),
+          /[:_]MAIN$/i.test(c.rawName)),
     );
     if (mainCh) {
       setActiveChannelId(mainCh.id);
@@ -818,8 +964,9 @@ function useAppState() {
     if (!auth.token) return false;
     try {
       await chatApi.joinChat(auth.token, targetChatId);
+      const idStr = String(targetChatId);
+      setActiveChannelId(idStr);
       await reloadRooms();
-      setActiveChannelId(String(targetChatId));
       toast(`Raum #${targetChatId} beigetreten`);
       return true;
     } catch (e) {
@@ -832,6 +979,41 @@ function useAppState() {
   const inviteState = (chId: string): InviteState => {
     if (inviteMap[chId]) return inviteMap[chId];
     const ch = channel(chId);
+    const rawRoom = serverRooms.find((r) => String(r.chatid) === chId);
+
+    if (!isMockModeEnabled() && rawRoom) {
+      const ownerObj =
+        rawRoom.owner && !Array.isArray(rawRoom.owner) ? rawRoom.owner : undefined;
+      const serverParticipants = Array.isArray(rawRoom.participants) ? rawRoom.participants : [];
+      const serverInvited = Array.isArray(rawRoom.invited) ? rawRoom.invited : [];
+
+      const members: Member[] = [];
+      const seenIds = new Set<string>();
+
+      for (const p of serverParticipants) {
+        const isMe = p.userid.toLowerCase() === auth.userId.toLowerCase();
+        const isOwner = ownerObj?.userid?.toLowerCase() === p.userid.toLowerCase();
+        const memberId = isMe ? 'self' : p.userid;
+        if (!seenIds.has(memberId.toLowerCase())) {
+          seenIds.add(memberId.toLowerCase());
+          members.push({
+            id: memberId,
+            role: isOwner ? 'Ersteller' : 'Mitglied',
+            hash: p.hash,
+          });
+        }
+      }
+
+      if (!seenIds.has('self')) {
+        const isOwner =
+          ownerObj?.userid?.toLowerCase() === auth.userId.toLowerCase() || rawRoom.role === 'owner';
+        members.unshift({ id: 'self', role: isOwner ? 'Ersteller' : 'Mitglied' });
+      }
+
+      const pending = serverInvited.map((inv) => inv.userid.toLowerCase());
+      return { pending, members };
+    }
+
     const dynamicSenders = Array.from(
       new Set(
         (ch?.messages ?? [])
@@ -843,7 +1025,7 @@ function useAppState() {
       ),
     );
     const defaultMembers: Member[] = [
-      { id: 'self', role: 'Ersteller' },
+      { id: 'self', role: ch?.chatid === 0 ? 'Mitglied' : 'Ersteller' },
       ...dynamicSenders.map((uid) => ({ id: uid, role: 'Mitglied' })),
     ];
     if (isMockModeEnabled() && defaultMembers.length === 1) {

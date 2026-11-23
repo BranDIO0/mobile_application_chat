@@ -18,23 +18,44 @@ export const CURRENT_SEMESTER = 'WS26';
 export const MAX_CHATNAME_LENGTH = 30;
 
 /**
-  * Matches both "::" and ":" delimiter formats so names stay under the 30-char server limit:
-  * - WS26:MOD:Mathe_1:MAIN
-  * - WS26::MOD::Mathe_1::MAIN
-  * - WS26:MOD:Mathe_1:SUB:LG_A
-  * - WS26::MOD::Mathe_1::SUB::Lerngruppe_A
-  * - SS25:MOD:Mathe_1:MAIN
+  * Sanitizes a token so it only contains ASCII letters, digits, and underscores (no ':', '.', '-', or umlauts)
+  * to comply with the HSE server's parameter validation (Error 402).
+  */
+export function sanitizeServerToken(s: string): string {
+  return s
+    .trim()
+    .replace(/ä/g, 'ae')
+    .replace(/ö/g, 'oe')
+    .replace(/ü/g, 'ue')
+    .replace(/Ä/g, 'Ae')
+    .replace(/Ö/g, 'Oe')
+    .replace(/Ü/g, 'Ue')
+    .replace(/ß/g, 'ss')
+    .replace(/[^a-zA-Z0-9_]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '');
+}
+
+/**
+  * Matches "_", ":", and "::" delimiter formats so names stay under the 30-char server limit
+  * and avoid Error 402 (Illegal characters in parameter) on the HSE Live & Backup servers:
+  * - WS26_MOD_Mathe_1_MAIN
+  * - WS26_MOD_Mathe_1_SUB_LG_A
+  * - WS26:MOD:Mathe_1:MAIN (legacy)
+  * - WS26::MOD::Mathe_1::MAIN (legacy)
+  * - SS25_MOD_Mathe_1_MAIN
   */
 const MOD_REGEX =
-  /^(?:(?<sem>[A-Z]{2}\d{2})::?|)?MOD::?(?<mod>[^:]+)(?:::?(?<kind>MAIN|SUB)(?:::?(?<sub>.+))?)?$/i;
+  /^(?:(?<sem>[A-Z]{2}\d{2})(?:::?|_))?MOD(?:::?|_)(?<mod>.+?)(?:(?:::?|_)(?<kind>MAIN|SUB)(?:(?:::?|_)(?<sub>.+))?)?$/i;
 
 /**
   * Matches:
-  * - CUSTOM:Webtech-Proj.
-  * - CUSTOM::Webtech-Proj.
-  * - WS26:CUSTOM:Webtech-Proj.
+  * - CUSTOM_Webtech_Proj
+  * - WS26_CUSTOM_Webtech_Proj
+  * - CUSTOM:Webtech-Proj. (legacy)
+  * - CUSTOM::Webtech-Proj. (legacy)
   */
-const CUSTOM_REGEX = /^(?:(?<sem>[A-Z]{2}\d{2})::?|)?CUSTOM::?(?<name>.+)$/i;
+const CUSTOM_REGEX = /^(?:(?<sem>[A-Z]{2}\d{2})(?:::?|_))?CUSTOM(?:::?|_)(?<name>.+)$/i;
 
 /**
   * Matches embedded attachment metadata in text:
@@ -44,14 +65,17 @@ const ATTACHMENT_REGEX = /^\[ATTACHMENT::(?<name>[^:]+)::(?<size>[^:]+)::(?<kind
 
 export function findModuleByToken(modToken: string, modules: Module[]): Module | undefined {
   const clean = modToken.trim().toLowerCase();
+  const sanitized = sanitizeServerToken(modToken).toLowerCase();
   const unslug = unslugifyName(modToken).toLowerCase();
   return modules.find(
     (m) =>
       m.id.toLowerCase() === clean ||
       m.slug.toLowerCase() === clean ||
+      sanitizeServerToken(m.slug).toLowerCase() === sanitized ||
       m.abbr.toLowerCase() === clean ||
       slugifyName(m.abbr).toLowerCase() === clean ||
       slugifyName(m.short).toLowerCase() === clean ||
+      sanitizeServerToken(m.short).toLowerCase() === sanitized ||
       m.short.toLowerCase() === unslug ||
       m.full.toLowerCase() === unslug ||
       m.code.toLowerCase() === clean,
@@ -64,7 +88,7 @@ export function findModuleByToken(modToken: string, modules: Module[]): Module |
   */
 export function createDynamicModuleFromToken(modToken: string, joined = true): Module {
   const display = unslugifyName(modToken);
-  const slug = slugifyName(display);
+  const slug = sanitizeServerToken(display) || slugifyName(display);
   const id = `mod_${slug.toLowerCase()}`;
   const words = display.split(/\s+/).filter(Boolean);
   const abbr =
@@ -80,16 +104,39 @@ export function createDynamicModuleFromToken(modToken: string, joined = true): M
     full: display,
     code: `MOD-${abbr}`,
     prof: 'Hochschulkurs',
-    participants: 1,
+    participants: 0,
     category: CATEGORIES[2] ?? 'Wahlpflicht',
     joined,
   };
 }
 
+export function isRoomJoinedByUser(r: ChatRoom, currentUserId?: string): boolean {
+  if (Number(r.chatid) === 0) return true;
+  if (typeof r.joined === 'boolean') return r.joined;
+  if (r.role) {
+    const role = r.role.toLowerCase();
+    return role === 'owner' || role === 'member' || role === 'admin';
+  }
+  const uid = currentUserId?.trim().toLowerCase();
+  if (uid) {
+    const ownerObj = r.owner && !Array.isArray(r.owner) ? r.owner : undefined;
+    if (ownerObj?.userid?.toLowerCase() === uid) return true;
+    if (Array.isArray(r.participants) && r.participants.length > 0) {
+      return r.participants.some((p) => p.userid?.toLowerCase() === uid);
+    }
+  }
+  return true;
+}
+
 /**
   * Discovers any user-created modules from server rooms (`getchats`) and merges them with existing modules.
   */
-export function syncModulesWithServerRooms(rooms: ChatRoom[], currentModules: Module[], isMock: boolean): Module[] {
+export function syncModulesWithServerRooms(
+  rooms: ChatRoom[],
+  currentModules: Module[],
+  isMock: boolean,
+  currentUserId?: string,
+): Module[] {
   const initialIds = new Set(INITIAL_MODULES.map((m) => m.id));
   const initialAbbrs = new Set(INITIAL_MODULES.map((m) => m.abbr.toLowerCase()));
 
@@ -100,14 +147,16 @@ export function syncModulesWithServerRooms(rooms: ChatRoom[], currentModules: Mo
 
   const nextModules = cleanedModules.map((m) => ({
     ...m,
-    // In real server mode, joined status is determined by whether the user is a member of the module's room on the server
+    // In real server mode (Live & Backup), start with 0 dummy participants and joined = false;
+    // real membership and participant counts come strictly from the server rooms.
+    participants: isMock ? m.participants : 0,
     joined: isMock ? m.joined : false,
   }));
 
   // Process MAIN rooms before SUB rooms so custom modules are registered by their full slug before any subgroup abbreviations
   const sortedRooms = [...rooms].sort((a, b) => {
-    const aIsSub = /:SUB:/i.test(a.chatname ?? '') ? 1 : 0;
-    const bIsSub = /:SUB:/i.test(b.chatname ?? '') ? 1 : 0;
+    const aIsSub = /[:_]SUB[:_]/i.test(a.chatname ?? '') ? 1 : 0;
+    const bIsSub = /[:_]SUB[:_]/i.test(b.chatname ?? '') ? 1 : 0;
     return aIsSub - bIsSub;
   });
 
@@ -122,19 +171,22 @@ export function syncModulesWithServerRooms(rooms: ChatRoom[], currentModules: Mo
     const modToken = match.groups.mod ?? '';
     if (!modToken) continue;
 
-    // On the real server (openapi.yaml), getchats returns all public chats with `joined: boolean`
-    const isRoomJoined = r.joined !== undefined ? r.joined : r.role !== 'none' && r.role !== 'invited';
+    const isRoomJoined = isRoomJoinedByUser(r, currentUserId);
 
     const existing = findModuleByToken(modToken, nextModules);
     if (existing) {
       if (isRoomJoined) existing.joined = true;
       if (Array.isArray(r.participants) && r.participants.length > 0) {
         existing.participants = Math.max(existing.participants, r.participants.length);
+      } else if (isRoomJoined && existing.participants === 0) {
+        existing.participants = 1;
       }
     } else {
       const dyn = createDynamicModuleFromToken(modToken, isRoomJoined);
       if (Array.isArray(r.participants) && r.participants.length > 0) {
         dyn.participants = r.participants.length;
+      } else if (isRoomJoined) {
+        dyn.participants = 1;
       }
       nextModules.push(dyn);
     }
@@ -151,8 +203,7 @@ export function parseChatRoom(
   const rawName = String(room.chatname ?? `Chat #${room.chatid}`).trim();
   const chatid = Number(room.chatid);
   const id = String(chatid);
-  const participantCount =
-    Array.isArray(room.participants) && room.participants.length > 0 ? room.participants.length : undefined;
+  const participantCount = Array.isArray(room.participants) ? room.participants.length : undefined;
 
   const modMatch = rawName.match(MOD_REGEX);
   if (modMatch && modMatch.groups) {
@@ -175,7 +226,7 @@ export function parseChatRoom(
         ? 'Hauptkanal'
         : unslugifyName(subRaw);
 
-    const members = participantCount ?? (isMain ? matchedMod.participants : 5);
+    const members = participantCount ?? (isMain ? Math.max(1, matchedMod.participants) : 1);
 
     let subtype: ChannelSubtype = 'study';
     if (isMain) {
@@ -220,7 +271,7 @@ export function parseChatRoom(
       name,
       icon: archived ? '📦' : '🔧',
       subtype,
-      members: participantCount ?? 4,
+      members: participantCount ?? 1,
       archived,
       visibility: room.visibility,
       messages: existingMessages,
@@ -234,7 +285,7 @@ export function parseChatRoom(
     name: rawName,
     icon: '💬',
     subtype: 'custom',
-    members: participantCount ?? (room.visibility === 'public' ? 42 : 5),
+    members: participantCount ?? 1,
     archived: false,
     visibility: room.visibility,
     messages: existingMessages,
@@ -388,20 +439,21 @@ function clampRoomName(name: string): string {
 }
 
 export function buildModuleMainRoomName(mod: Module): string {
-  const modKey = slugifyName(mod.slug || mod.short).slice(0, 14);
-  return clampRoomName(`${CURRENT_SEMESTER}:MOD:${modKey}:MAIN`);
+  const modKey = sanitizeServerToken(mod.slug || mod.short).slice(0, 14) || 'Modul';
+  return clampRoomName(`${CURRENT_SEMESTER}_MOD_${modKey}_MAIN`);
 }
 
 export function buildSubgroupRoomName(mod: Module, subgroupName: string): string {
-  const modKey = slugifyName(mod.slug || mod.short).slice(0, 10);
-  const prefix = `${CURRENT_SEMESTER}:MOD:${modKey}:SUB:`;
+  const modKey = sanitizeServerToken(mod.slug || mod.short).slice(0, 10) || 'Mod';
+  const prefix = `${CURRENT_SEMESTER}_MOD_${modKey}_SUB_`;
   const maxSubLen = Math.max(2, MAX_CHATNAME_LENGTH - prefix.length);
-  const subKey = slugifyName(subgroupName).slice(0, maxSubLen);
+  const subKey = sanitizeServerToken(subgroupName).slice(0, maxSubLen) || 'Gruppe';
   return clampRoomName(`${prefix}${subKey}`);
 }
 
 export function buildCustomGroupRoomName(groupName: string): string {
-  const prefix = 'CUSTOM:';
+  const prefix = 'CUSTOM_';
   const maxLen = MAX_CHATNAME_LENGTH - prefix.length;
-  return clampRoomName(`${prefix}${groupName.trim().slice(0, maxLen)}`);
+  const key = sanitizeServerToken(groupName).slice(0, maxLen) || 'Gruppe';
+  return clampRoomName(`${prefix}${key}`);
 }

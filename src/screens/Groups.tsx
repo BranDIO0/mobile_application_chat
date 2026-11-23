@@ -14,10 +14,12 @@ import {
 import { CATEGORIES } from '../data/catalog';
 import { MainHeader, SubHeader, TabBar } from '../components/Layout';
 import { initials, useApp } from '../context/AppContext';
+import { buildCustomGroupRoomName } from '../utils/roomParser';
 
 export function Catalog() {
-  const { modules, joinModule, openModuleMain, setModuleModalOpen, setSubgroupModal } = useApp();
+  const { modules, joinModule, openModuleMain, setModuleModalOpen, setSubgroupModal, mockMode } = useApp();
   const [q, setQ] = useState('');
+  const [joiningId, setJoiningId] = useState<string | null>(null);
   const needle = q.trim().toLowerCase();
   const list = modules.filter(
     (m) => !needle || `${m.full} ${m.code} ${m.prof}`.toLowerCase().includes(needle),
@@ -69,7 +71,8 @@ export function Catalog() {
                   <div className="mod-info">
                     <div className="mod-name">{m.full}</div>
                     <div className="mod-sub">
-                      {m.code} · {m.prof} · {m.participants} Teiln.
+                      {m.code} · {m.prof}
+                      {(mockMode || m.participants > 0) ? ` · ${m.participants} Teiln.` : ''}
                     </div>
                   </div>
                   {m.joined ? (
@@ -98,13 +101,19 @@ export function Catalog() {
                       </button>
                     </div>
                   ) : (
-                    <button
-                      type="button"
-                      className="join-btn"
-                      onClick={() => joinModule(m.id)}
-                    >
-                      Beitreten
-                    </button>
+                      <button
+                        type="button"
+                        className="join-btn"
+                        disabled={joiningId === m.id}
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          setJoiningId(m.id);
+                          await joinModule(m.id);
+                          setJoiningId(null);
+                        }}
+                      >
+                        {joiningId === m.id ? 'Beitritt…' : 'Beitreten'}
+                      </button>
                   )}
                 </div>
               ))}
@@ -121,7 +130,6 @@ export function Catalog() {
 export function FreeGroup() {
   const { createCustomGroup, mockMode } = useApp();
   const [name, setName] = useState('');
-  const [desc, setDesc] = useState('');
   const [type, setType] = useState('Freies Projekt');
   const [invitee, setInvitee] = useState('');
   const [chips, setChips] = useState<string[]>(() => (mockMode ? ['abcdit44', 'abcdit09'] : []));
@@ -139,6 +147,7 @@ export function FreeGroup() {
     if (v && !chips.includes(v)) setChips([...chips, v]);
     setInvitee('');
   };
+  const previewCustomName = buildCustomGroupRoomName(name.trim() || 'Name');
 
   return (
     <>
@@ -161,22 +170,14 @@ export function FreeGroup() {
             id="fg-name"
             type="text"
             maxLength={22}
-            placeholder="z. B. Webtech-Team"
+            placeholder="z. B. Webtech Team"
             value={name}
             onChange={(e) => setName(e.target.value)}
             disabled={busy}
           />
-          <span className="hint">Wird als CUSTOM:{name.trim() || '<Name>'} auf dem Server angelegt</span>
-        </div>
-        <div className="field">
-          <label htmlFor="fg-desc">Beschreibung</label>
-          <textarea
-            id="fg-desc"
-            placeholder="Worum geht es in dieser Gruppe?"
-            value={desc}
-            onChange={(e) => setDesc(e.target.value)}
-            disabled={busy}
-          />
+          <span className="hint">
+            Wird als {previewCustomName} ({previewCustomName.length}/30 Zeichen) auf dem Server angelegt
+          </span>
         </div>
         <div className="field">
           <label htmlFor="fg-type">Typ</label>
@@ -254,13 +255,19 @@ export function Invite() {
     }
   };
 
-  // Registered server users who aren't invited/members yet
+  // Registered server users who aren't invited/members yet, filtered by current search/input
+  const needle = user.trim().toLowerCase();
   const availableServerUsers = p.profiles.filter(
     (prof) =>
       prof.userid.toLowerCase() !== p.userId.toLowerCase() &&
       !st.pending.includes(prof.userid.toLowerCase()) &&
       !st.members.some((m) => m.id.toLowerCase() === prof.userid.toLowerCase()),
   );
+  const filteredServerUsers = needle
+    ? availableServerUsers.filter((prof) =>
+        `${prof.userid} ${prof.nickname} ${prof.fullname}`.toLowerCase().includes(needle),
+      )
+    : availableServerUsers;
 
   return (
     <>
@@ -274,12 +281,12 @@ export function Invite() {
         }}
       >
         <div className="field">
-          <label htmlFor="inv-user">Hochschulkürzel *</label>
+          <label htmlFor="inv-user">Hochschulkürzel oder Name suchen *</label>
           <input
             id="inv-user"
             className={err ? 'invalid' : ''}
             type="text"
-            placeholder="z. B. jaehit00"
+            placeholder="z. B. jaehit00 oder Name filtern…"
             value={user}
             onChange={(e) => {
               setUser(e.target.value);
@@ -290,40 +297,54 @@ export function Invite() {
           {err ? (
             <span className="error">{err}</span>
           ) : (
-            <span className="hint">Keine private Nummer nötig — nur das offizielle Kürzel</span>
+            <span className="hint">Tippe zum Filtern der Liste oder gib das Kürzel direkt ein</span>
           )}
         </div>
-        <button type="submit" className="btn-primary md" disabled={busy}>
+        <button type="submit" className="btn-primary md" disabled={busy} style={{ flexShrink: 0 }}>
           {busy ? 'Sende Einladung…' : 'Einladung senden'}
         </button>
 
         {availableServerUsers.length > 0 && (
           <>
             <div className="sec" style={{ padding: '8px 0 0' }}>
-              Registrierte Nutzer auf dem Server ({availableServerUsers.length})
+              Registrierte Nutzer auf dem Server ({filteredServerUsers.length}
+              {needle ? ` von ${availableServerUsers.length}` : ''})
             </div>
-            <div className="card-list">
-              {availableServerUsers.slice(0, 8).map((prof) => (
-                <div key={prof.hash} className="list-item">
-                  <div className="avatar sm navy">{prof.userid[0]!.toUpperCase()}</div>
-                  <div className="list-info">
-                    <span className="name">
-                      {prof.nickname}{' '}
-                      <span style={{ fontWeight: 400, color: 'var(--g500)' }}>({prof.userid})</span>
-                    </span>
-                    <span className="sub">{prof.fullname}</span>
+            {filteredServerUsers.length === 0 ? (
+              <div className="empty-state" style={{ padding: '8px 0', textAlign: 'left' }}>
+                Kein registrierter Nutzer für „{user}“ gefunden.
+              </div>
+            ) : (
+              <div
+                className="card-list"
+                style={{
+                  maxHeight: 260,
+                  overflowY: 'auto',
+                  flexShrink: 0,
+                }}
+              >
+                {filteredServerUsers.map((prof) => (
+                  <div key={prof.hash || prof.userid} className="list-item">
+                    <div className="avatar sm navy">{prof.userid[0]!.toUpperCase()}</div>
+                    <div className="list-info">
+                      <span className="name">
+                        {prof.nickname}{' '}
+                        <span style={{ fontWeight: 400, color: 'var(--g500)' }}>({prof.userid})</span>
+                      </span>
+                      <span className="sub">{prof.fullname}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="join-btn"
+                      disabled={busy}
+                      onClick={() => submit(prof.userid)}
+                    >
+                      Einladen
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    className="join-btn"
-                    disabled={busy}
-                    onClick={() => submit(prof.userid)}
-                  >
-                    Einladen
-                  </button>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </>
         )}
 
@@ -341,15 +362,17 @@ export function Invite() {
                 <div className="avatar sm navy">{u[0]!.toUpperCase()}</div>
                 <div className="list-info">
                   <span className="name">{u}</span>
-                  <span className="sub">Einladung ausstehend</span>
+                  <span className="sub">Einladung gesendet</span>
                 </div>
-                <button
-                  type="button"
-                  className="list-action red"
-                  onClick={() => p.withdrawInvite(ch.id, u)}
-                >
-                  Zurückziehen
-                </button>
+                {p.mockMode && (
+                  <button
+                    type="button"
+                    className="list-action red"
+                    onClick={() => p.withdrawInvite(ch.id, u)}
+                  >
+                    Zurückziehen
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -369,7 +392,7 @@ export function Invite() {
                   <span className="name">{self ? `${p.userId} (Du)` : m.id}</span>
                   <span className="sub">{m.role}</span>
                 </div>
-                {!self && (
+                {!self && p.mockMode && (
                   <button
                     type="button"
                     className="list-action"

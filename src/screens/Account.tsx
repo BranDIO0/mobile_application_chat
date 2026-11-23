@@ -22,6 +22,9 @@ export function Profile() {
         if (me?.fullname) {
           p.setDisplayName(me.fullname);
           setDraft(me.fullname);
+        } else if (me?.nickname) {
+          p.setDisplayName(me.nickname);
+          setDraft(me.nickname);
         }
       })
       .catch(() => {});
@@ -48,12 +51,14 @@ export function Profile() {
   return (
     <>
       <SubHeader title="Profil">
-        <button
-          className="text-btn"
-          onClick={() => (editing ? save() : (setDraft(displayName), setEditing(true)))}
-        >
-          {editing ? 'Fertig' : 'Bearbeiten'}
-        </button>
+        {mockMode && (
+          <button
+            className="text-btn"
+            onClick={() => (editing ? save() : (setDraft(displayName), setEditing(true)))}
+          >
+            {editing ? 'Fertig' : 'Bearbeiten'}
+          </button>
+        )}
       </SubHeader>
       <div className="scrollable">
         <div className="profile-hero">

@@ -31,7 +31,7 @@ function renderChannelIcon(c: Channel) {
 
   const subtype =
     c.subtype ??
-    (c.name.toLowerCase() === 'hauptkanal' || c.rawName.toLowerCase().includes(':main')
+    (c.name.toLowerCase() === 'hauptkanal' || /[:_]MAIN$/i.test(c.rawName)
       ? 'main'
       : 'study');
 
@@ -110,7 +110,7 @@ function TreeGroup({
       !c.archived &&
       (c.subtype === 'main' ||
         c.name.toLowerCase() === 'hauptkanal' ||
-        c.rawName.toLowerCase().includes(':main')),
+        /[:_]MAIN$/i.test(c.rawName)),
   );
   const subChannels = mainChannel
     ? sortChannelsByType(items.filter((c) => c.id !== mainChannel.id))
@@ -232,16 +232,18 @@ export function Chats() {
             <span>Eigene Gruppen</span>
             {customCount > 0 && <span className="seg-badge">{customCount}</span>}
           </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'archive'}
-            className={`segmented-btn${tab === 'archive' ? ' active' : ''}`}
-            onClick={() => setTab('archive')}
-          >
-            <span>Archiv (SS25)</span>
-            {archiveCount > 0 && <span className="seg-badge">{archiveCount}</span>}
-          </button>
+          {(p.mockMode || archiveCount > 0) && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'archive'}
+              className={`segmented-btn${tab === 'archive' ? ' active' : ''}`}
+              onClick={() => setTab('archive')}
+            >
+              <span>Archiv (SS25)</span>
+              {archiveCount > 0 && <span className="seg-badge">{archiveCount}</span>}
+            </button>
+          )}
         </div>
       </div>
 
@@ -274,13 +276,17 @@ export function Chats() {
               type="button"
               className="toolbar-action-btn"
               onClick={() => {
-                const targetModId = p.activeChannel?.moduleId ?? joined[0]?.id ?? 'mathe1';
+                if (joined.length === 0) {
+                  p.setModuleModalOpen(true);
+                  return;
+                }
+                const targetModId = p.activeChannel?.moduleId ?? joined[0]?.id ?? '';
                 p.setSubgroupModal(targetModId);
               }}
               title="Neue Gruppe oder Untergruppe anlegen"
             >
               <Plus size={16} strokeWidth={2.4} />
-              <span>Gruppe / Untergruppe</span>
+              <span>{joined.length === 0 ? 'Modul anlegen' : 'Gruppe / Untergruppe'}</span>
             </button>
           </>
         )}
@@ -415,9 +421,10 @@ export function ChatView() {
             {item(<UserPlus size={18} />, 'Mitglieder einladen', () => p.navigate('invite'))}
             {mod &&
               item(<Plus size={18} />, 'Untergruppe erstellen', () => p.setSubgroupModal(mod.id))}
-            {item(<BellOff size={18} />, 'Stummschalten', () =>
-              p.toast(`${ch.name} stummgeschaltet`),
-            )}
+            {p.mockMode &&
+              item(<BellOff size={18} />, 'Stummschalten', () =>
+                p.toast(`${ch.name} stummgeschaltet`),
+              )}
             {ch.chatid !== 0 &&
               item(<LogOut size={18} />, 'Gruppe verlassen', () => p.leaveChannel(ch.id))}
             {ch.chatid !== 0 &&

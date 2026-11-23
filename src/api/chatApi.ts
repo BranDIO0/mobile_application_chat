@@ -14,8 +14,8 @@ export const chatApi = {
 
   // Chats & users
   getChats: (token: string) => request<ApiResponse & { chats: ChatRoom[] }>('GET', 'getchats', { token }),
-  createChat: (token: string, chatname: string, ispublic = true) =>
-    request<ApiResponse & { chatid: number }>('GET', 'createchat', { token, chatname, ispublic }),
+  createChat: (token: string, chatname: string) =>
+    request<ApiResponse & { chatid: number }>('GET', 'createchat', { token, chatname }),
   joinChat: (token: string, chatid: number) => request('GET', 'joinchat', { token, chatid }),
   leaveChat: (token: string, chatid: number) => request('GET', 'leavechat', { token, chatid }),
   deleteChat: (token: string, chatid: number) => request('GET', 'deletechat', { token, chatid }),

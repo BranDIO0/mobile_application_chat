@@ -211,11 +211,11 @@ export function useChat(token: string, chatId: number) {
     }
   };
 
-  /** Creates a room (public by default) and returns its id. */
-  const createRoom = async (name: string, isPublic = true): Promise<number | undefined> => {
+  /** Creates a room and returns its id. */
+  const createRoom = async (name: string): Promise<number | undefined> => {
     setError(null);
     try {
-      const res = await chatApi.createChat(token, name, isPublic);
+      const res = await chatApi.createChat(token, name);
       await reloadRooms();
       return Number(res.chatid);
     } catch (e) {

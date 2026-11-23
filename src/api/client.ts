@@ -88,11 +88,15 @@ function buildRequestUrlAndInit(
   accessToken?: string,
 ): { url: string; init: RequestInit } {
   let url = `${baseUrl}/`;
-  const headers: Record<string, string> = { Accept: 'application/json' };
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
+    Pragma: 'no-cache',
+  };
   if (accessToken) {
     headers['X-Access-Token'] = accessToken;
   }
-  const init: RequestInit = { method, headers };
+  const init: RequestInit = { method, headers, cache: 'no-store' };
 
   if (method === 'GET') {
     const query = new URLSearchParams({ request: name });
