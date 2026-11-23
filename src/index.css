@@ -430,8 +430,45 @@ button:not(:disabled), [role='button'] { cursor: pointer; }
 .msg.self { align-self: flex-end; align-items: flex-end; }
 .msg.other { align-self: flex-start; align-items: flex-start; }
 @keyframes msgIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-.msg-meta { font-size: 11px; color: var(--g500); display: flex; align-items: center; gap: 5px; }
+.msg-meta { font-size: 11px; color: var(--g500); display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
 .badge-dozent { background: var(--red); color: #fff; font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 9999px; text-transform: uppercase; letter-spacing: 0.3px; }
+.badge-important {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 9999px;
+  background: var(--warn-bg);
+  color: var(--warn);
+  border: 1px solid rgba(180, 83, 9, 0.25);
+}
+.badge-important.cat-exam {
+  background: var(--red-10);
+  color: var(--red);
+  border-color: rgba(227, 0, 57, 0.25);
+}
+.badge-important.cat-room {
+  background: #e0f2fe;
+  color: #0369a1;
+  border-color: rgba(3, 105, 161, 0.25);
+}
+.msg.other.is-important .msg-bubble {
+  border-left: 3px solid var(--warn);
+  background: #fffdf7;
+}
+.msg.self.is-important .msg-bubble {
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.45);
+}
+.msg.jump-highlight .msg-bubble {
+  animation: jumpPulse 2s ease-out;
+}
+@keyframes jumpPulse {
+  0% { box-shadow: 0 0 0 4px rgba(227, 0, 57, 0.45); transform: scale(1.015); }
+  40% { box-shadow: 0 0 0 4px rgba(227, 0, 57, 0.35); transform: scale(1.01); }
+  100% { box-shadow: 0 0 0 0 rgba(227, 0, 57, 0); transform: none; }
+}
 .msg-bubble { padding: 9px 13px; border-radius: 16px; font-size: 14px; line-height: 1.4; word-break: break-word; }
 .msg.other .msg-bubble { background: var(--surface); border: 1px solid var(--line); color: var(--g900); border-top-left-radius: 4px; }
 .msg.self .msg-bubble { background: var(--navy); color: #fff; border-top-right-radius: 4px; }

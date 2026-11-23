@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import type { Channel, ScreenId } from '../data/catalog';
 import { useApp } from '../context/AppContext';
+import { detectImportantMessage } from '../utils/importantDetector';
 
 export const LOGO_SRC = '/assets/hey-logo.png';
 
@@ -146,14 +147,29 @@ export function TabBar({ active }: { active: ScreenId }) {
   );
 }
 
-export function ChatArea({ channel, dateLabel = 'Heute' }: { channel: Channel; dateLabel?: string }) {
+export function ChatArea({
+  channel,
+  dateLabel = 'Heute',
+  highlightedMsgId,
+}: {
+  channel: Channel;
+  dateLabel?: string;
+  highlightedMsgId?: string | null;
+}) {
   const { openFile, typing } = useApp();
   const ref = useRef<HTMLDivElement>(null);
   const isTyping = typing === channel.id;
 
   useEffect(() => {
+    if (highlightedMsgId) {
+      const targetEl = ref.current?.querySelector<HTMLElement>(`#msg-${CSS.escape(highlightedMsgId)}`);
+      if (targetEl) {
+        targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+    }
     ref.current?.scrollTo({ top: ref.current.scrollHeight, behavior: 'smooth' });
-  }, [channel.messages.length, channel.id, isTyping]);
+  }, [channel.messages.length, channel.id, isTyping, highlightedMsgId]);
 
   return (
     <div
@@ -177,10 +193,21 @@ export function ChatArea({ channel, dateLabel = 'Heute' }: { channel: Channel; d
       )}
       {channel.messages.map((m) => {
         const self = m.from === 'self';
+        const imp = detectImportantMessage(m);
+        const isHighlighted = highlightedMsgId === m.id;
         return (
-          <div key={m.id} className={`msg ${self ? 'self' : 'other'}`}>
+          <div
+            key={m.id}
+            id={`msg-${m.id}`}
+            className={`msg ${self ? 'self' : 'other'}${imp ? ' is-important' : ''}${isHighlighted ? ' jump-highlight' : ''}`}
+          >
             <div className="msg-meta">
               {m.dozent && <span className="badge-dozent">Dozent</span>}
+              {imp && imp.category !== 'lecturer' && (
+                <span className={`badge-important cat-${imp.category}`} title={imp.label}>
+                  {imp.icon} {imp.label}
+                </span>
+              )}
               {self ? 'Du' : m.from} · {m.time}
             </div>
             {m.text && <div className="msg-bubble">{m.text}</div>}
