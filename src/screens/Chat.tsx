@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Archive as ArchiveIcon,
   BellOff,
@@ -18,6 +18,7 @@ import { ChatArea, InputBar, MainHeader, SubHeader, TabBar } from '../components
 import type { Channel } from '../data/catalog';
 import { CATEGORIES, slugifyName } from '../data/catalog';
 import { useApp } from '../context/AppContext';
+import { extractImportantMessages } from '../utils/importantDetector';
 import { buildModuleMainRoomName, buildSubgroupRoomName } from '../utils/roomParser';
 
 function renderChannelIcon(c: Channel) {
@@ -385,6 +386,38 @@ export function ChatView() {
   const ch = p.activeChannel;
   const mod = p.moduleOf(ch);
   const [menu, setMenu] = useState(false);
+  const [pinsState, setPinsState] = useState<{ channelId: string; open: boolean }>({
+    channelId: ch.id,
+    open: false,
+  });
+  const [highlightState, setHighlightState] = useState<{ channelId: string; msgId: string } | null>(
+    null,
+  );
+  const highlightTimer = useRef<number | null>(null);
+
+  const pinsExpanded = pinsState.channelId === ch.id && pinsState.open;
+  const highlightedMsgId = highlightState?.channelId === ch.id ? highlightState.msgId : null;
+
+  const importantInfos = extractImportantMessages(ch.messages);
+  const orderedInfos = [...importantInfos].reverse();
+
+  useEffect(() => {
+    return () => {
+      if (highlightTimer.current) window.clearTimeout(highlightTimer.current);
+    };
+  }, []);
+
+  const jumpToMessage = (msgId: string) => {
+    setPinsState({ channelId: ch.id, open: false });
+    if (highlightTimer.current) window.clearTimeout(highlightTimer.current);
+    setHighlightState(null);
+    window.requestAnimationFrame(() => {
+      setHighlightState({ channelId: ch.id, msgId });
+    });
+    highlightTimer.current = window.setTimeout(() => {
+      setHighlightState(null);
+    }, 2200);
+  };
 
   const item = (icon: ReactNode, label: string, fn: () => void) => (
     <button
@@ -412,7 +445,53 @@ export function ChatView() {
           <EllipsisVertical size={22} />
         </button>
       </SubHeader>
-      <ChatArea channel={ch} />
+      {orderedInfos.length > 0 && (
+        <div className="important-bar">
+          <button
+            type="button"
+            className="important-bar-toggle"
+            onClick={() => setPinsState({ channelId: ch.id, open: !pinsExpanded })}
+            aria-expanded={pinsExpanded}
+          >
+            <span className="important-bar-title">
+              📌 Wichtige Infos &amp; Termine ({orderedInfos.length})
+            </span>
+            {pinsExpanded ? <ChevronDown size={17} /> : <ChevronRight size={17} />}
+          </button>
+          {pinsExpanded && (
+            <div className="important-bar-list" role="list">
+              {orderedInfos.map((info) => {
+                const sender = info.msg.from === 'self' ? 'Du' : info.msg.from;
+                const preview = info.msg.text || info.msg.file?.name || 'Nachricht';
+                return (
+                  <button
+                    key={info.msg.id}
+                    type="button"
+                    role="listitem"
+                    className="important-bar-item"
+                    onClick={() => jumpToMessage(info.msg.id)}
+                  >
+                    <span className="important-bar-icon" aria-hidden>
+                      {info.icon}
+                    </span>
+                    <span className="important-bar-content">
+                      <span className="important-bar-meta">
+                        <span className={`badge-important cat-${info.category}`}>{info.label}</span>
+                        <span>
+                          {sender} · {info.msg.time}
+                        </span>
+                      </span>
+                      <span className="important-bar-text">{preview}</span>
+                    </span>
+                    <ChevronRight size={15} className="important-bar-arrow" aria-hidden />
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+      <ChatArea channel={ch} highlightedMsgId={highlightedMsgId} />
       <InputBar channel={ch} />
       {menu && (
         <>
